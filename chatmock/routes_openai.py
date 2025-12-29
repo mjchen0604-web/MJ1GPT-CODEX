@@ -237,9 +237,7 @@ def chat_completions() -> Response:
         )
 
     instructions = _instructions_for_model(model)
-    if compatibility_mode:
-        instructions = None
-    elif system_texts:
+    if system_texts:
         system_block = "\n\n".join(system_texts)
         if isinstance(instructions, str) and instructions.strip():
             instructions = instructions.rstrip() + "\n\n" + system_block
@@ -320,24 +318,6 @@ def chat_completions() -> Response:
                 upstream = upstream3
             else:
                 err_body = _read_err_body(upstream3) if upstream3 is not None else err_body
-
-        if upstream.status_code == 400 and isinstance(instructions, str) and instructions.strip():
-            upstream4, err4 = start_upstream_request(
-                model,
-                input_items,
-                instructions=None,
-                tools=tools_for_retry,
-                tool_choice=tool_choice,
-                parallel_tool_calls=parallel_tool_calls,
-                reasoning_param=None,
-            )
-            if err4 is not None:
-                return err4
-            record_rate_limits_from_response(upstream4)
-            if upstream4 is not None and upstream4.status_code < 400:
-                upstream = upstream4
-            else:
-                err_body = _read_err_body(upstream4) if upstream4 is not None else err_body
 
         if upstream.status_code >= 400:
             if verbose:
@@ -531,7 +511,7 @@ def completions() -> Response:
             reasoning_overrides,
             allowed_efforts=allowed_efforts_for_model(model),
         )
-    instructions = None if compatibility_mode else _instructions_for_model(model)
+    instructions = _instructions_for_model(model)
     upstream, error_resp = start_upstream_request(
         model,
         input_items,

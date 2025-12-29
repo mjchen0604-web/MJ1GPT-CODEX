@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Tuple
 import requests
 from flask import Response, current_app, jsonify, make_response
 
-from .config import CHATGPT_RESPONSES_URL
+from .config import CHATGPT_RESPONSES_URL, BASE_INSTRUCTIONS
 from .http import build_cors_headers
 from .session import ensure_session_id
 from flask import request as flask_request
@@ -144,6 +144,14 @@ def start_upstream_request(
         )
     except Exception:
         client_session_id = None
+
+    base_instructions = current_app.config.get("BASE_INSTRUCTIONS", BASE_INSTRUCTIONS)
+    if not isinstance(instructions, str) or not instructions.strip():
+        if isinstance(base_instructions, str) and base_instructions.strip():
+            instructions = base_instructions
+        else:
+            instructions = "You are a helpful assistant."
+
     session_id = ensure_session_id(instructions, input_items, client_session_id)
 
     responses_payload = {
@@ -153,8 +161,7 @@ def start_upstream_request(
         "stream": True,
         "prompt_cache_key": session_id,
     }
-    if isinstance(instructions, str) and instructions.strip():
-        responses_payload["instructions"] = instructions
+    responses_payload["instructions"] = instructions
     if isinstance(tools, list) and tools:
         responses_payload["tools"] = tools
         responses_payload["tool_choice"] = (
