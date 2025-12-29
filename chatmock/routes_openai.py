@@ -203,13 +203,24 @@ def chat_completions() -> Response:
         ]
 
     model_reasoning = extract_reasoning_from_model_name(requested_model)
-    reasoning_overrides = payload.get("reasoning") if isinstance(payload.get("reasoning"), dict) else model_reasoning
-    reasoning_param = build_reasoning_param(
-        reasoning_effort,
-        reasoning_summary,
-        reasoning_overrides,
-        allowed_efforts=allowed_efforts_for_model(model),
-    )
+    payload_effort = str(payload.get("reasoning_effort") or "").strip().lower()
+    payload_summary = str(payload.get("reasoning_summary") or "").strip().lower()
+    disable_reasoning = payload_effort in ("none", "off", "disable")
+    if disable_reasoning:
+        reasoning_param = None
+    else:
+        if isinstance(payload.get("reasoning"), dict):
+            reasoning_overrides = payload.get("reasoning")
+        elif payload_effort or payload_summary:
+            reasoning_overrides = {"effort": payload_effort, "summary": payload_summary}
+        else:
+            reasoning_overrides = model_reasoning
+        reasoning_param = build_reasoning_param(
+            reasoning_effort,
+            reasoning_summary,
+            reasoning_overrides,
+            allowed_efforts=allowed_efforts_for_model(model),
+        )
 
     instructions = _instructions_for_model(model)
     if compatibility_mode:
@@ -449,13 +460,24 @@ def completions() -> Response:
     input_items = convert_chat_messages_to_responses_input(messages)
 
     model_reasoning = extract_reasoning_from_model_name(requested_model)
-    reasoning_overrides = payload.get("reasoning") if isinstance(payload.get("reasoning"), dict) else model_reasoning
-    reasoning_param = build_reasoning_param(
-        reasoning_effort,
-        reasoning_summary,
-        reasoning_overrides,
-        allowed_efforts=allowed_efforts_for_model(model),
-    )
+    payload_effort = str(payload.get("reasoning_effort") or "").strip().lower()
+    payload_summary = str(payload.get("reasoning_summary") or "").strip().lower()
+    disable_reasoning = payload_effort in ("none", "off", "disable")
+    if disable_reasoning:
+        reasoning_param = None
+    else:
+        if isinstance(payload.get("reasoning"), dict):
+            reasoning_overrides = payload.get("reasoning")
+        elif payload_effort or payload_summary:
+            reasoning_overrides = {"effort": payload_effort, "summary": payload_summary}
+        else:
+            reasoning_overrides = model_reasoning
+        reasoning_param = build_reasoning_param(
+            reasoning_effort,
+            reasoning_summary,
+            reasoning_overrides,
+            allowed_efforts=allowed_efforts_for_model(model),
+        )
     instructions = None if compatibility_mode else _instructions_for_model(model)
     upstream, error_resp = start_upstream_request(
         model,
