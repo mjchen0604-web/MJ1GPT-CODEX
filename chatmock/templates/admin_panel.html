@@ -353,7 +353,10 @@
                 <div class="muted">冷却到：{{ acc.cooldown_until }}（剩余 {{ acc.cooldown_remaining }}）</div>
                 {% endif %}
                 {% if acc.last_error_code %}
-                <div class="muted">最近错误：{{ acc.last_error_code }} {{ acc.last_error_message or '' }} {{ acc.last_error_at or '' }}</div>
+                <div class="muted">最近错误：{{ acc.last_error_code }} {{ acc.last_error_reason or '' }} {{ acc.last_error_message or '' }} {{ acc.last_error_at or '' }}</div>
+                {% endif %}
+                {% if acc.failure_count %}
+                <div class="muted">失败次数：{{ acc.failure_count }}</div>
                 {% endif %}
                 {% if acc.last_success_at %}
                 <div class="muted">最近成功：{{ acc.last_success_at }}</div>

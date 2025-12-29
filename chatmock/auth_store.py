@@ -148,7 +148,9 @@ def mark_account_success(store: Dict[str, Any], account_id: str) -> Dict[str, An
             continue
         account["cooldown_until"] = ""
         account["backoff_level"] = 0
+        account["failure_count"] = 0
         account["last_error_code"] = None
+        account["last_error_reason"] = ""
         account["last_error_message"] = ""
         account["last_error_at"] = ""
         account["last_success_at"] = _now_iso()
@@ -173,25 +175,32 @@ def mark_account_failure(
             continue
         cooldown_seconds = 0
         backoff_level = int(account.get("backoff_level") or 0)
+        reason = "unknown"
         if status_code == 429:
             if isinstance(retry_after_seconds, int) and retry_after_seconds > 0:
                 cooldown_seconds = retry_after_seconds
             else:
                 cooldown_seconds, backoff_level = _next_quota_backoff(backoff_level)
+            reason = "quota"
         elif status_code in (401, 403):
             cooldown_seconds = 30 * 60
             backoff_level = 0
+            reason = "unauthorized"
         elif status_code == 404:
             cooldown_seconds = 12 * 60 * 60
             backoff_level = 0
+            reason = "not_found"
         elif status_code in (408, 500, 502, 503, 504):
             cooldown_seconds = 60
             backoff_level = 0
+            reason = "server_error"
 
         if cooldown_seconds > 0:
             account["cooldown_until"] = (now + datetime.timedelta(seconds=cooldown_seconds)).isoformat().replace("+00:00", "Z")
         account["backoff_level"] = backoff_level
+        account["failure_count"] = int(account.get("failure_count") or 0) + 1
         account["last_error_code"] = status_code
+        account["last_error_reason"] = reason
         account["last_error_message"] = message or ""
         account["last_error_at"] = _now_iso()
         break
