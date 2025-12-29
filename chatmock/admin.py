@@ -546,6 +546,13 @@ def keys_update() -> Response:
         return redirect(url_for("admin.panel"))
 
     store = load_api_keys()
+    old_limits = {}
+    for k in list_keys(store):
+        if k.get("id") == key_id:
+            old_limits = k.get("limits") or {}
+            break
+    old_total = old_limits.get("total")
+    old_daily = old_limits.get("daily")
     store = update_key(
         store,
         key_id,
@@ -554,6 +561,8 @@ def keys_update() -> Response:
         limits={"total": total, "daily": daily},
     )
     save_api_keys(store)
+    if total != old_total or daily != old_daily:
+        reset_usage(key_id)
     return redirect(url_for("admin.panel"))
 
 
