@@ -3,12 +3,15 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import threading
 from typing import Any, Dict, List, Optional
 
 from .utils import get_home_dir, parse_jwt_claims, write_auth_file
 
 
 STORE_FILENAME = "auth_store.json"
+_RR_LOCK = threading.Lock()
+_RR_COUNTER = 0
 
 
 def _now_iso() -> str:
@@ -26,6 +29,37 @@ def _normalize_store(store: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(store.get("active_account_id"), str):
         store["active_account_id"] = ""
     return store
+
+
+def pick_round_robin_account(store: Dict[str, Any]) -> Dict[str, Any] | None:
+    """
+    Pick the next account in a process-local round-robin sequence.
+
+    This does NOT modify the on-disk store or active account; it only selects
+    an account for the current request.
+    """
+    store = _normalize_store(store)
+    accounts = store.get("accounts") or []
+    usable: List[Dict[str, Any]] = []
+    for account in accounts:
+        if not isinstance(account, dict):
+            continue
+        account_id = account.get("account_id")
+        if not isinstance(account_id, str) or not account_id:
+            continue
+        tokens = account.get("tokens") if isinstance(account.get("tokens"), dict) else {}
+        if not (tokens.get("access_token") or tokens.get("refresh_token")):
+            continue
+        usable.append(account)
+
+    if not usable:
+        return None
+
+    global _RR_COUNTER
+    with _RR_LOCK:
+        idx = _RR_COUNTER % len(usable)
+        _RR_COUNTER += 1
+    return usable[idx]
 
 
 def load_store(home_dir: str | None = None) -> Dict[str, Any] | None:

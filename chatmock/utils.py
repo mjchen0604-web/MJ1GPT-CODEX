@@ -230,7 +230,14 @@ def load_chatgpt_tokens(
 
         store = _auth_store.load_store()
         if store:
-            account = _auth_store.get_account(store, account_id_override)
+            if account_id_override:
+                account = _auth_store.get_account(store, account_id_override)
+            else:
+                strategy = (os.getenv("CHATMOCK_ACCOUNT_STRATEGY") or os.getenv("CHATGPT_LOCAL_ACCOUNT_STRATEGY") or "").strip().lower()
+                if strategy in ("round_robin", "round-robin", "rr"):
+                    account = _auth_store.pick_round_robin_account(store)
+                if account is None:
+                    account = _auth_store.get_account(store, None)
     except Exception:
         store = None
         account = None

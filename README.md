@@ -169,6 +169,13 @@ You can enable it by starting the server with this parameter, which will allow O
 - `--expose-reasoning-models`<br>
 If your preferred app doesn’t support selecting reasoning effort, or you just want a simpler approach, this parameter exposes each reasoning level as a separate, queryable model. Each reasoning level also appears individually under ⁠/v1/models, so model pickers in your favorite chat apps will list all reasoning options as distinct models you can switch between.
 
+### Multi-account round-robin (ChatGPT)
+
+If you upload multiple ChatGPT `auth.json` files (Admin Panel → Auth), ChatMock can rotate accounts per request:
+
+- `CHATMOCK_ACCOUNT_STRATEGY=round_robin` (or `CHATGPT_LOCAL_ACCOUNT_STRATEGY=round_robin`)
+- Optional failover retry (on upstream 401/403/429): `CHATMOCK_ACCOUNT_FAILOVER=2`
+
 ## Notes
 If you wish to have the fastest responses, I'd recommend setting `--reasoning-effort` to low, and `--reasoning-summary` to none. <br>
 All parameters and choices can be seen by sending `python chatmock.py serve --h`<br>

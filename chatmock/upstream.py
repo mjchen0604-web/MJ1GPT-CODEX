@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from typing import Any, Dict, List, Tuple
 
@@ -81,21 +82,6 @@ def start_upstream_request(
         )
     except Exception:
         account_override = None
-    access_token, account_id = get_effective_chatgpt_auth(account_override)
-    if not access_token or not account_id:
-        resp = make_response(
-            jsonify(
-                {
-                    "error": {
-                        "message": "Missing ChatGPT credentials. Run 'python3 chatmock.py login' first.",
-                    }
-                }
-            ),
-            401,
-        )
-        for k, v in build_cors_headers().items():
-            resp.headers.setdefault(k, v)
-        return None, resp
 
     include: List[str] = []
     if isinstance(reasoning_param, dict):
@@ -137,26 +123,64 @@ def start_upstream_request(
     if verbose:
         _log_json("OUTBOUND >> ChatGPT Responses API payload", responses_payload)
 
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json",
-        "Accept": "text/event-stream",
-        "chatgpt-account-id": account_id,
-        "OpenAI-Beta": "responses=experimental",
-        "session_id": session_id,
-    }
+    failover_attempts = 0
+    if not account_override:
+        raw_failover = os.getenv("CHATMOCK_ACCOUNT_FAILOVER") or os.getenv("CHATGPT_LOCAL_ACCOUNT_FAILOVER") or ""
+        try:
+            failover_attempts = int(raw_failover)
+        except Exception:
+            failover_attempts = 0
+        failover_attempts = max(0, min(10, failover_attempts))
 
-    try:
-        upstream = requests.post(
-            CHATGPT_RESPONSES_URL,
-            headers=headers,
-            json=responses_payload,
-            stream=True,
-            timeout=600,
-        )
-    except requests.RequestException as e:
-        resp = make_response(jsonify({"error": {"message": f"Upstream ChatGPT request failed: {e}"}}), 502)
-        for k, v in build_cors_headers().items():
-            resp.headers.setdefault(k, v)
-        return None, resp
-    return upstream, None
+    attempts = 1 if account_override else (1 + failover_attempts)
+    last_upstream = None
+    for attempt in range(attempts):
+        access_token, account_id = get_effective_chatgpt_auth(account_override)
+        if not access_token or not account_id:
+            resp = make_response(
+                jsonify(
+                    {
+                        "error": {
+                            "message": "Missing ChatGPT credentials. Run 'python3 chatmock.py login' first.",
+                        }
+                    }
+                ),
+                401,
+            )
+            for k, v in build_cors_headers().items():
+                resp.headers.setdefault(k, v)
+            return None, resp
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "chatgpt-account-id": account_id,
+            "OpenAI-Beta": "responses=experimental",
+            "session_id": session_id,
+        }
+
+        try:
+            upstream = requests.post(
+                CHATGPT_RESPONSES_URL,
+                headers=headers,
+                json=responses_payload,
+                stream=True,
+                timeout=600,
+            )
+        except requests.RequestException as e:
+            resp = make_response(jsonify({"error": {"message": f"Upstream ChatGPT request failed: {e}"}}), 502)
+            for k, v in build_cors_headers().items():
+                resp.headers.setdefault(k, v)
+            return None, resp
+
+        last_upstream = upstream
+        if upstream.status_code in (401, 403, 429) and attempt < (attempts - 1):
+            try:
+                upstream.close()
+            except Exception:
+                pass
+            continue
+        return upstream, None
+
+    return last_upstream, None
