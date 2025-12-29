@@ -14,6 +14,7 @@ from flask import (
     abort,
     current_app,
     jsonify,
+    make_response,
     redirect,
     render_template,
     request,
@@ -197,6 +198,7 @@ def _auth_context(error: str | None = None) -> Dict[str, Any]:
         "error": error,
         "accounts": decorated_accounts,
         "active_account_id": active_account_id or "",
+        "account_strategy": strategy or "default",
         "is_round_robin": is_round_robin,
     }
 
@@ -206,9 +208,17 @@ def _guard():
     _require_admin_enabled()
 
 
+@admin_bp.after_request
+def _no_store(resp: Response) -> Response:
+    resp.headers.setdefault("Cache-Control", "no-store")
+    resp.headers.setdefault("Pragma", "no-cache")
+    resp.headers.setdefault("Expires", "0")
+    return resp
+
+
 @admin_bp.get("/login")
 def login_page() -> Response:
-    return render_template("admin_login.html", error=None)
+    return make_response(render_template("admin_login.html", error=None))
 
 
 @admin_bp.post("/login")
@@ -218,7 +228,7 @@ def login_post() -> Response:
     if submitted and submitted == pw:
         session["chatmock_admin"] = True
         return redirect(url_for("admin.panel"))
-    return render_template("admin_login.html", error="密码不正确")
+    return make_response(render_template("admin_login.html", error="密码不正确"))
 
 
 @admin_bp.post("/logout")
@@ -244,7 +254,7 @@ def panel() -> Response:
     auth_error = session.pop("auth_error", None) or auth_ctx.get("error")
     key_error = session.pop("key_error", None)
 
-    return render_template(
+    return make_response(
         "admin_panel.html",
         current=current,
         saved={**DEFAULT_SETTINGS, **saved},
@@ -257,6 +267,7 @@ def panel() -> Response:
         flow_expires_in=auth_ctx.get("flow_expires_in"),
         accounts=auth_ctx.get("accounts"),
         active_account_id=auth_ctx.get("active_account_id"),
+        account_strategy=auth_ctx.get("account_strategy"),
         auth_error=auth_error,
         api_keys_enabled=keys_enabled,
         keys=keys,
