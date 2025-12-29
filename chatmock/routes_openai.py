@@ -272,12 +272,16 @@ def chat_completions() -> Response:
     record_rate_limits_from_response(upstream)
 
     created = int(time.time())
-    if upstream.status_code >= 400:
+    def _read_err_body(resp: Response) -> Dict[str, Any]:
         try:
-            raw = upstream.content
-            err_body = json.loads(raw.decode("utf-8", errors="ignore")) if raw else {"raw": upstream.text}
+            raw = resp.content
+            return json.loads(raw.decode("utf-8", errors="ignore")) if raw else {"raw": resp.text}
         except Exception:
-            err_body = {"raw": upstream.text}
+            return {"raw": resp.text}
+
+    if upstream.status_code >= 400:
+        err_body = _read_err_body(upstream)
+        tools_for_retry = tools_responses
         if had_responses_tools:
             if verbose:
                 print("[Passthrough] Upstream error; retrying without extra tools (args redacted)")
@@ -296,25 +300,54 @@ def chat_completions() -> Response:
             if err2 is None and upstream2 is not None and upstream2.status_code < 400:
                 upstream = upstream2
             else:
-                err_body2 = err_body
-                if upstream2 is not None:
-                    try:
-                        raw2 = upstream2.content
-                        err_body2 = json.loads(raw2.decode("utf-8", errors="ignore")) if raw2 else {"raw": upstream2.text}
-                    except Exception:
-                        err_body2 = {"raw": upstream2.text}
-                err_msg = (err_body2.get("error", {}) or {}).get("message", "Upstream error")
-                err_code = (err_body2.get("error", {}) or {}).get("code")
-                err = {"error": {"message": err_msg}}
-                if isinstance(err_code, str) and err_code:
-                    err["error"]["code"] = err_code
-                if verbose:
-                    _log_json("OUT POST /v1/chat/completions", err)
-                return jsonify(err), (upstream2.status_code if upstream2 is not None else upstream.status_code)
-        else:
+                err_body = _read_err_body(upstream2) if upstream2 is not None else err_body
+                tools_for_retry = base_tools_only
+
+        if upstream.status_code == 400 and reasoning_param is not None:
+            upstream3, err3 = start_upstream_request(
+                model,
+                input_items,
+                instructions=instructions,
+                tools=tools_for_retry,
+                tool_choice=tool_choice,
+                parallel_tool_calls=parallel_tool_calls,
+                reasoning_param=None,
+            )
+            if err3 is not None:
+                return err3
+            record_rate_limits_from_response(upstream3)
+            if upstream3 is not None and upstream3.status_code < 400:
+                upstream = upstream3
+            else:
+                err_body = _read_err_body(upstream3) if upstream3 is not None else err_body
+
+        if upstream.status_code == 400 and isinstance(instructions, str) and instructions.strip():
+            upstream4, err4 = start_upstream_request(
+                model,
+                input_items,
+                instructions=None,
+                tools=tools_for_retry,
+                tool_choice=tool_choice,
+                parallel_tool_calls=parallel_tool_calls,
+                reasoning_param=None,
+            )
+            if err4 is not None:
+                return err4
+            record_rate_limits_from_response(upstream4)
+            if upstream4 is not None and upstream4.status_code < 400:
+                upstream = upstream4
+            else:
+                err_body = _read_err_body(upstream4) if upstream4 is not None else err_body
+
+        if upstream.status_code >= 400:
             if verbose:
                 print("Upstream error status=", upstream.status_code)
-            err = {"error": {"message": (err_body.get("error", {}) or {}).get("message", "Upstream error")}}
+                _log_json("UPSTREAM ERROR BODY", err_body)
+            err_msg = (err_body.get("error", {}) or {}).get("message", "Upstream error")
+            err_code = (err_body.get("error", {}) or {}).get("code")
+            err = {"error": {"message": err_msg}}
+            if isinstance(err_code, str) and err_code:
+                err["error"]["code"] = err_code
             if verbose:
                 _log_json("OUT POST /v1/chat/completions", err)
             return jsonify(err), upstream.status_code

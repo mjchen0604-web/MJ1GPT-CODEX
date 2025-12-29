@@ -148,15 +148,19 @@ def start_upstream_request(
 
     responses_payload = {
         "model": model,
-        "instructions": instructions if isinstance(instructions, str) and instructions.strip() else instructions,
         "input": input_items,
-        "tools": tools or [],
-        "tool_choice": tool_choice if tool_choice in ("auto", "none") or isinstance(tool_choice, dict) else "auto",
-        "parallel_tool_calls": bool(parallel_tool_calls),
         "store": False,
         "stream": True,
         "prompt_cache_key": session_id,
     }
+    if isinstance(instructions, str) and instructions.strip():
+        responses_payload["instructions"] = instructions
+    if isinstance(tools, list) and tools:
+        responses_payload["tools"] = tools
+        responses_payload["tool_choice"] = (
+            tool_choice if tool_choice in ("auto", "none") or isinstance(tool_choice, dict) else "auto"
+        )
+        responses_payload["parallel_tool_calls"] = bool(parallel_tool_calls)
     if include:
         responses_payload["include"] = include
 
