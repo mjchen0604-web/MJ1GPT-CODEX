@@ -224,7 +224,6 @@ def start_upstream_request(
     else:
         attempt_ids = [None]
 
-    retryable_statuses = {401, 403, 404, 408, 429, 500, 502, 503, 504}
     last_upstream = None
     for attempt, override_id in enumerate(attempt_ids):
         access_token, account_id, cooldown_until = get_effective_chatgpt_auth(override_id)
@@ -279,6 +278,14 @@ def start_upstream_request(
                 timeout=600,
             )
         except requests.RequestException as e:
+            record_account_result(
+                account_id,
+                success=False,
+                status_code=502,
+                message=str(e),
+            )
+            if attempt < len(attempt_ids) - 1:
+                continue
             resp = make_response(jsonify({"error": {"message": f"Upstream ChatGPT request failed: {e}"}}), 502)
             for k, v in build_cors_headers().items():
                 resp.headers.setdefault(k, v)
@@ -290,8 +297,8 @@ def start_upstream_request(
             record_account_result(account_id, success=True)
             return upstream, None
 
-        should_retry = upstream.status_code in retryable_statuses and attempt < (len(attempt_ids) - 1)
-        err_message = _extract_error_message(upstream) if should_retry else None
+        should_retry = attempt < (len(attempt_ids) - 1)
+        err_message = _extract_error_message(upstream)
         record_account_result(
             account_id,
             success=False,
