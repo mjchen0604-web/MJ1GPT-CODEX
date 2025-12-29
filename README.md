@@ -174,7 +174,9 @@ If your preferred app doesn’t support selecting reasoning effort, or you just 
 If you upload multiple ChatGPT `auth.json` files (Admin Panel → Auth), ChatMock can rotate accounts per request:
 
 - `CHATMOCK_ACCOUNT_STRATEGY=round_robin` (or `CHATGPT_LOCAL_ACCOUNT_STRATEGY=round_robin`)
-- Optional failover retry (on upstream 401/403/429): `CHATMOCK_ACCOUNT_FAILOVER=2`
+- Failover retry (on upstream 401/403/404/408/429/5xx):
+  - `CHATMOCK_ACCOUNT_FAILOVER=auto` (default) tries all available accounts once
+  - `CHATMOCK_ACCOUNT_FAILOVER=2` tries up to 3 accounts total
 
 ## Notes
 If you wish to have the fastest responses, I'd recommend setting `--reasoning-effort` to low, and `--reasoning-summary` to none. <br>

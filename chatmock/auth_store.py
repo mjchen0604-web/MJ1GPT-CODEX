@@ -84,6 +84,23 @@ def _collect_available_accounts(store: Dict[str, Any], now: datetime.datetime | 
     return usable
 
 
+def list_available_accounts(store: Dict[str, Any], now: datetime.datetime | None = None) -> List[Dict[str, Any]]:
+    return _collect_available_accounts(store, now)
+
+
+def round_robin_accounts(store: Dict[str, Any]) -> List[Dict[str, Any]]:
+    usable = _collect_available_accounts(store)
+    if not usable:
+        return []
+    global _RR_COUNTER
+    with _RR_LOCK:
+        start = _RR_COUNTER % len(usable)
+        _RR_COUNTER += 1
+    if start == 0:
+        return usable
+    return usable[start:] + usable[:start]
+
+
 def earliest_cooldown(store: Dict[str, Any], now: datetime.datetime | None = None) -> datetime.datetime | None:
     store = _normalize_store(store)
     now = now or datetime.datetime.now(datetime.timezone.utc)

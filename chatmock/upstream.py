@@ -77,6 +77,37 @@ def _retry_after_seconds(headers: Dict[str, str] | None) -> int | None:
         return None
 
 
+def _parse_failover_attempts(raw: str | None) -> int | None:
+    if not isinstance(raw, str):
+        return None
+    value = raw.strip().lower()
+    if not value:
+        return None
+    if value in ("auto", "all", "-1"):
+        return None
+    try:
+        parsed = int(value)
+    except Exception:
+        return None
+    if parsed < 0:
+        return None
+    return parsed
+
+
+def _extract_error_message(resp: requests.Response) -> str | None:
+    try:
+        payload = resp.json()
+    except Exception:
+        return None
+    if isinstance(payload, dict):
+        err = payload.get("error")
+        if isinstance(err, dict):
+            msg = err.get("message")
+            if isinstance(msg, str) and msg:
+                return msg
+    return None
+
+
 def start_upstream_request(
     model: str,
     input_items: List[Dict[str, Any]],
@@ -137,19 +168,66 @@ def start_upstream_request(
     if verbose:
         _log_json("OUTBOUND >> ChatGPT Responses API payload", responses_payload)
 
-    failover_attempts = 0
+    candidate_ids: List[str] = []
+    cooldown_until = None
     if not account_override:
-        raw_failover = os.getenv("CHATMOCK_ACCOUNT_FAILOVER") or os.getenv("CHATGPT_LOCAL_ACCOUNT_FAILOVER") or ""
         try:
-            failover_attempts = int(raw_failover)
-        except Exception:
-            failover_attempts = 0
-        failover_attempts = max(0, min(10, failover_attempts))
+            from . import auth_store as _auth_store
 
-    attempts = 1 if account_override else (1 + failover_attempts)
+            store = _auth_store.load_store() or {}
+            has_accounts = isinstance(store.get("accounts"), list) and bool(store.get("accounts"))
+            if has_accounts:
+                strategy = (os.getenv("CHATMOCK_ACCOUNT_STRATEGY") or os.getenv("CHATGPT_LOCAL_ACCOUNT_STRATEGY") or "").strip().lower()
+                if strategy in ("round_robin", "round-robin", "rr"):
+                    accounts = _auth_store.round_robin_accounts(store)
+                else:
+                    accounts = _auth_store.list_available_accounts(store)
+                for acc in accounts:
+                    account_id = acc.get("account_id") if isinstance(acc, dict) else None
+                    if isinstance(account_id, str) and account_id:
+                        candidate_ids.append(account_id)
+                if not candidate_ids:
+                    cooldown_until = _auth_store.earliest_cooldown(store)
+        except Exception:
+            candidate_ids = []
+
+    if cooldown_until:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        retry_after = int(max(0, (cooldown_until - now).total_seconds()))
+        err = {
+            "error": {
+                "message": "All accounts are cooling down. Retry later.",
+                "code": "ACCOUNTS_COOLDOWN",
+                "retry_after": retry_after,
+            }
+        }
+        resp = make_response(jsonify(err), 429)
+        if retry_after:
+            resp.headers["Retry-After"] = str(retry_after)
+        for k, v in build_cors_headers().items():
+            resp.headers.setdefault(k, v)
+        return None, resp
+
+    failover_attempts = None
+    if not account_override and candidate_ids:
+        raw_failover = os.getenv("CHATMOCK_ACCOUNT_FAILOVER") or os.getenv("CHATGPT_LOCAL_ACCOUNT_FAILOVER") or ""
+        failover_attempts = _parse_failover_attempts(raw_failover)
+
+    if account_override:
+        attempt_ids = [account_override]
+    elif candidate_ids:
+        if failover_attempts is None:
+            attempts = len(candidate_ids)
+        else:
+            attempts = min(len(candidate_ids), 1 + failover_attempts)
+        attempt_ids = candidate_ids[:attempts]
+    else:
+        attempt_ids = [None]
+
+    retryable_statuses = {401, 403, 404, 408, 429, 500, 502, 503, 504}
     last_upstream = None
-    for attempt in range(attempts):
-        access_token, account_id, cooldown_until = get_effective_chatgpt_auth(account_override)
+    for attempt, override_id in enumerate(attempt_ids):
+        access_token, account_id, cooldown_until = get_effective_chatgpt_auth(override_id)
         if not access_token or not account_id:
             if cooldown_until:
                 now = datetime.datetime.now(datetime.timezone.utc)
@@ -167,6 +245,8 @@ def start_upstream_request(
                 for k, v in build_cors_headers().items():
                     resp.headers.setdefault(k, v)
                 return None, resp
+            if attempt < len(attempt_ids) - 1:
+                continue
             resp = make_response(
                 jsonify(
                     {
@@ -208,15 +288,19 @@ def start_upstream_request(
         retry_after = _retry_after_seconds(getattr(upstream, "headers", {}) or {})
         if upstream.status_code < 400:
             record_account_result(account_id, success=True)
-        else:
-            record_account_result(
-                account_id,
-                success=False,
-                status_code=upstream.status_code,
-                retry_after_seconds=retry_after,
-            )
+            return upstream, None
 
-        if upstream.status_code in (401, 403, 429) and attempt < (attempts - 1):
+        should_retry = upstream.status_code in retryable_statuses and attempt < (len(attempt_ids) - 1)
+        err_message = _extract_error_message(upstream) if should_retry else None
+        record_account_result(
+            account_id,
+            success=False,
+            status_code=upstream.status_code,
+            retry_after_seconds=retry_after,
+            message=err_message,
+        )
+
+        if should_retry:
             try:
                 upstream.close()
             except Exception:
