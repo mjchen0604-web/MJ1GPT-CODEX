@@ -5,6 +5,7 @@ import os
 import secrets
 import time
 import urllib.parse
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from flask import (
@@ -117,6 +118,35 @@ def _apply_settings(settings: Dict[str, Any]) -> None:
     )
 
 
+def _parse_iso8601(value: str) -> datetime | None:
+    try:
+        if value.endswith("Z"):
+            value = value[:-1] + "+00:00"
+        dt = datetime.fromisoformat(value)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _format_duration(seconds: int) -> str:
+    seconds = max(0, int(seconds))
+    days, remainder = divmod(seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, remainder = divmod(remainder, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if not parts:
+        parts.append(f"{remainder}s")
+    return " ".join(parts)
+
+
 def _auth_context(error: str | None = None) -> Dict[str, Any]:
     home_dir = get_home_dir()
     store = load_store(home_dir)
@@ -141,13 +171,29 @@ def _auth_context(error: str | None = None) -> Dict[str, Any]:
         except Exception:
             flow_expires_in = "未知"
 
+    now = datetime.now(timezone.utc)
+    decorated_accounts = []
+    for acc in accounts if isinstance(accounts, list) else []:
+        if not isinstance(acc, dict):
+            continue
+        entry = dict(acc)
+        cooldown_until = entry.get("cooldown_until")
+        cooldown_dt = _parse_iso8601(cooldown_until) if isinstance(cooldown_until, str) else None
+        if cooldown_dt and cooldown_dt > now:
+            entry["cooldown_active"] = True
+            entry["cooldown_remaining"] = _format_duration(int((cooldown_dt - now).total_seconds()))
+        else:
+            entry["cooldown_active"] = False
+            entry["cooldown_remaining"] = ""
+        decorated_accounts.append(entry)
+
     return {
         "has_tokens": has_tokens,
         "home_dir": home_dir,
         "flow": flow,
         "flow_expires_in": flow_expires_in,
         "error": error,
-        "accounts": accounts or [],
+        "accounts": decorated_accounts,
         "active_account_id": active_account_id or "",
     }
 

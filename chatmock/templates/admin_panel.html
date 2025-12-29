@@ -216,6 +216,9 @@
       .badge.off {
         background-color: #6c757d;
       }
+      .badge.warn {
+        background-color: #f59e0b;
+      }
       .note {
         background-color: #f8f9fa;
         border: 1px solid #e1e4e8;
@@ -334,7 +337,9 @@
                 <div class="cred-header">
                   <div class="cred-filename">{{ acc.label or acc.account_id }}</div>
                   <div>
-                    {% if acc.account_id == active_account_id %}
+                    {% if acc.cooldown_active %}
+                      <span class="badge warn">冷却中</span>
+                    {% elif acc.account_id == active_account_id %}
                       <span class="badge ok">当前使用</span>
                     {% else %}
                       <span class="badge off">未启用</span>
@@ -344,6 +349,15 @@
                 <div class="muted">Account ID：<code>{{ acc.account_id }}</code></div>
                 <div class="muted">创建时间：{{ acc.created_at }}</div>
                 <div class="muted">最近刷新：{{ acc.last_refresh }}</div>
+                {% if acc.cooldown_active %}
+                <div class="muted">冷却到：{{ acc.cooldown_until }}（剩余 {{ acc.cooldown_remaining }}）</div>
+                {% endif %}
+                {% if acc.last_error_code %}
+                <div class="muted">最近错误：{{ acc.last_error_code }} {{ acc.last_error_message or '' }} {{ acc.last_error_at or '' }}</div>
+                {% endif %}
+                {% if acc.last_success_at %}
+                <div class="muted">最近成功：{{ acc.last_success_at }}</div>
+                {% endif %}
                 <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
                   <form method="post" action="{{ url_for('admin.auth_activate') }}">
                     <input type="hidden" name="account_id" value="{{ acc.account_id }}" />
