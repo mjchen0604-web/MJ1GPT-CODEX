@@ -205,12 +205,8 @@ def start_upstream_request(
             store = _auth_store.load_store() or {}
             has_accounts = isinstance(store.get("accounts"), list) and bool(store.get("accounts"))
             if has_accounts:
-                strategy = (os.getenv("CHATMOCK_ACCOUNT_STRATEGY") or os.getenv("CHATGPT_LOCAL_ACCOUNT_STRATEGY") or "").strip().lower()
-                if strategy in ("round_robin", "round-robin", "rr"):
-                    is_round_robin = True
-                    accounts = _auth_store.round_robin_accounts(store)
-                else:
-                    accounts = _auth_store.list_available_accounts(store)
+                is_round_robin = True
+                accounts = _auth_store.round_robin_accounts(store)
                 for acc in accounts:
                     account_id = acc.get("account_id") if isinstance(acc, dict) else None
                     if isinstance(account_id, str) and account_id:
