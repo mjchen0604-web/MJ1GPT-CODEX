@@ -297,6 +297,11 @@ def load_chatgpt_tokens(
     auth = read_auth_file()
     if not isinstance(auth, dict):
         return None, None, None
+    try:
+        from . import auth_store as _auth_store
+        auth = _auth_store.normalize_auth_json(auth)
+    except Exception:
+        pass
 
     tokens = auth.get("tokens") if isinstance(auth.get("tokens"), dict) else {}
     access_token: Optional[str] = tokens.get("access_token")

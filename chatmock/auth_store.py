@@ -116,7 +116,26 @@ def _label_from_tokens(tokens: Dict[str, Any]) -> str:
     return "account"
 
 
+def normalize_auth_json(auth: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(auth, dict):
+        return {}
+    tokens = auth.get("tokens") if isinstance(auth.get("tokens"), dict) else None
+    if isinstance(tokens, dict):
+        return auth
+    flat_tokens: Dict[str, Any] = {}
+    for key in ("id_token", "access_token", "refresh_token", "account_id"):
+        value = auth.get(key)
+        if isinstance(value, str) and value:
+            flat_tokens[key] = value
+    if flat_tokens:
+        normalized = dict(auth)
+        normalized["tokens"] = flat_tokens
+        return normalized
+    return auth
+
+
 def account_from_auth_json(auth: Dict[str, Any]) -> Dict[str, Any] | None:
+    auth = normalize_auth_json(auth)
     tokens = auth.get("tokens") if isinstance(auth.get("tokens"), dict) else {}
     if not isinstance(tokens, dict):
         return None
