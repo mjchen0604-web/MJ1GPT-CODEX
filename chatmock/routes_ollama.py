@@ -279,6 +279,21 @@ def ollama_chat() -> Response:
     tool_choice = payload.get("tool_choice", "auto")
     parallel_tool_calls = bool(payload.get("parallel_tool_calls", False))
 
+    def _normalize_choice(value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip().lower()
+        if normalized in ("", "undefined", "[undefined]", "null"):
+            return None
+        if normalized in ("auto", "none"):
+            return normalized
+        return None
+
+    normalized_tool_choice = _normalize_choice(tool_choice)
+    if normalized_tool_choice:
+        tool_choice = normalized_tool_choice
+    responses_tool_choice = _normalize_choice(payload.get("responses_tool_choice"))
+
     # Passthrough Responses API tools (web_search) via ChatMock extension fields
     extra_tools: List[Dict[str, Any]] = []
     had_responses_tools = False
@@ -294,8 +309,8 @@ def ollama_chat() -> Response:
                 return jsonify(err), 400
             extra_tools.append(_t)
         if not extra_tools and bool(current_app.config.get("DEFAULT_WEB_SEARCH")):
-            rtc = payload.get("responses_tool_choice")
-            if not (isinstance(rtc, str) and rtc == "none"):
+            disable_default = responses_tool_choice == "none" or tool_choice == "none"
+            if not disable_default:
                 extra_tools = [{"type": "web_search"}]
         if extra_tools:
             import json as _json
@@ -312,9 +327,8 @@ def ollama_chat() -> Response:
             had_responses_tools = True
             tools_responses = (tools_responses or []) + extra_tools
 
-    rtc = payload.get("responses_tool_choice")
-    if isinstance(rtc, str) and rtc in ("auto", "none"):
-        tool_choice = rtc
+    if responses_tool_choice in ("auto", "none"):
+        tool_choice = responses_tool_choice
 
     if not isinstance(model, str) or not isinstance(messages, list) or not messages:
         err = {"error": "Invalid request format"}
@@ -372,13 +386,13 @@ def ollama_chat() -> Response:
             err_body = {"raw": upstream.text}
         if had_responses_tools:
             if verbose:
-                print("[Passthrough] Upstream rejected tools; retrying without extras (args redacted)")
+                print("[Passthrough] Upstream error; retrying without extras (args redacted)")
             base_tools_only = convert_tools_chat_to_responses(normalize_ollama_tools(tools_req))
             safe_choice = payload.get("tool_choice", "auto")
             upstream2, err2 = start_upstream_request(
                 normalize_model_name(model),
                 input_items,
-                instructions=BASE_INSTRUCTIONS,
+                instructions=instructions,
                 tools=base_tools_only,
                 tool_choice=safe_choice,
                 parallel_tool_calls=parallel_tool_calls,
@@ -393,7 +407,18 @@ def ollama_chat() -> Response:
             if err2 is None and upstream2 is not None and upstream2.status_code < 400:
                 upstream = upstream2
             else:
-                err = {"error": {"message": (err_body.get("error", {}) or {}).get("message", "Upstream error"), "code": "RESPONSES_TOOLS_REJECTED"}}
+                err_body2 = err_body
+                if upstream2 is not None:
+                    try:
+                        raw2 = upstream2.content
+                        err_body2 = json.loads(raw2.decode("utf-8", errors="ignore")) if raw2 else {"raw": upstream2.text}
+                    except Exception:
+                        err_body2 = {"raw": upstream2.text}
+                err_msg = (err_body2.get("error", {}) or {}).get("message", "Upstream error")
+                err_code = (err_body2.get("error", {}) or {}).get("code")
+                err = {"error": {"message": err_msg}}
+                if isinstance(err_code, str) and err_code:
+                    err["error"]["code"] = err_code
                 if verbose:
                     _log_json("OUT POST /api/chat", err)
                 return jsonify(err), (upstream2.status_code if upstream2 is not None else upstream.status_code)

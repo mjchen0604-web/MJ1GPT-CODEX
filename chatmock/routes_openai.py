@@ -156,6 +156,21 @@ def chat_completions() -> Response:
     responses_tools_payload = payload.get("responses_tools") if isinstance(payload.get("responses_tools"), list) else []
     extra_tools: List[Dict[str, Any]] = []
     had_responses_tools = False
+
+    def _normalize_choice(value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip().lower()
+        if normalized in ("", "undefined", "[undefined]", "null"):
+            return None
+        if normalized in ("auto", "none"):
+            return normalized
+        return None
+
+    normalized_tool_choice = _normalize_choice(tool_choice)
+    if normalized_tool_choice:
+        tool_choice = normalized_tool_choice
+    responses_tool_choice = _normalize_choice(payload.get("responses_tool_choice"))
     if isinstance(responses_tools_payload, list):
         for _t in responses_tools_payload:
             if not (isinstance(_t, dict) and isinstance(_t.get("type"), str)):
@@ -173,8 +188,8 @@ def chat_completions() -> Response:
             extra_tools.append(_t)
 
         if not extra_tools and bool(current_app.config.get("DEFAULT_WEB_SEARCH")):
-            responses_tool_choice = payload.get("responses_tool_choice")
-            if not (isinstance(responses_tool_choice, str) and responses_tool_choice == "none"):
+            disable_default = responses_tool_choice == "none" or tool_choice == "none"
+            if not disable_default:
                 extra_tools = [{"type": "web_search"}]
 
         if extra_tools:
@@ -192,8 +207,7 @@ def chat_completions() -> Response:
             had_responses_tools = True
             tools_responses = (tools_responses or []) + extra_tools
 
-    responses_tool_choice = payload.get("responses_tool_choice")
-    if isinstance(responses_tool_choice, str) and responses_tool_choice in ("auto", "none"):
+    if responses_tool_choice in ("auto", "none"):
         tool_choice = responses_tool_choice
 
     input_items = convert_chat_messages_to_responses_input(messages)
@@ -266,13 +280,13 @@ def chat_completions() -> Response:
             err_body = {"raw": upstream.text}
         if had_responses_tools:
             if verbose:
-                print("[Passthrough] Upstream rejected tools; retrying without extra tools (args redacted)")
+                print("[Passthrough] Upstream error; retrying without extra tools (args redacted)")
             base_tools_only = convert_tools_chat_to_responses(payload.get("tools"))
             safe_choice = payload.get("tool_choice", "auto")
             upstream2, err2 = start_upstream_request(
                 model,
                 input_items,
-                instructions=BASE_INSTRUCTIONS,
+                instructions=instructions,
                 tools=base_tools_only,
                 tool_choice=safe_choice,
                 parallel_tool_calls=parallel_tool_calls,
@@ -282,12 +296,18 @@ def chat_completions() -> Response:
             if err2 is None and upstream2 is not None and upstream2.status_code < 400:
                 upstream = upstream2
             else:
-                err = {
-                    "error": {
-                        "message": (err_body.get("error", {}) or {}).get("message", "Upstream error"),
-                        "code": "RESPONSES_TOOLS_REJECTED",
-                    }
-                }
+                err_body2 = err_body
+                if upstream2 is not None:
+                    try:
+                        raw2 = upstream2.content
+                        err_body2 = json.loads(raw2.decode("utf-8", errors="ignore")) if raw2 else {"raw": upstream2.text}
+                    except Exception:
+                        err_body2 = {"raw": upstream2.text}
+                err_msg = (err_body2.get("error", {}) or {}).get("message", "Upstream error")
+                err_code = (err_body2.get("error", {}) or {}).get("code")
+                err = {"error": {"message": err_msg}}
+                if isinstance(err_code, str) and err_code:
+                    err["error"]["code"] = err_code
                 if verbose:
                     _log_json("OUT POST /v1/chat/completions", err)
                 return jsonify(err), (upstream2.status_code if upstream2 is not None else upstream.status_code)

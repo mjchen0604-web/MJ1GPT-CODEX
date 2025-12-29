@@ -95,18 +95,20 @@ def _parse_failover_attempts(raw: str | None) -> int | None:
     return parsed
 
 
-def _extract_error_message(resp: requests.Response) -> str | None:
+def _extract_error_info(resp: requests.Response) -> tuple[str | None, str | None]:
     try:
         payload = resp.json()
     except Exception:
-        return None
+        return None, None
     if isinstance(payload, dict):
         err = payload.get("error")
         if isinstance(err, dict):
             msg = err.get("message")
-            if isinstance(msg, str) and msg:
-                return msg
-    return None
+            code = err.get("code")
+            msg = msg if isinstance(msg, str) and msg else None
+            code = code if isinstance(code, str) and code else None
+            return msg, code
+    return None, None
 
 
 def start_upstream_request(
@@ -299,11 +301,14 @@ def start_upstream_request(
             return upstream, None
 
         should_retry = attempt < (len(attempt_ids) - 1)
-        err_message = _extract_error_message(upstream)
+        err_message, err_code = _extract_error_info(upstream)
+        record_status = upstream.status_code
+        if err_code == "RESPONSES_TOOLS_REJECTED" and tools:
+            record_status = 400
         record_account_result(
             account_id,
             success=False,
-            status_code=upstream.status_code,
+            status_code=record_status,
             retry_after_seconds=retry_after,
             message=err_message,
         )
