@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>MJ1GPT-CODEX API 密钥管理</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; }
+      .wrap { max-width: 980px; margin: 32px auto; padding: 0 16px; }
+      .card { margin-top: 16px; border: 1px solid rgba(127,127,127,.3); border-radius: 12px; padding: 16px; background: rgba(127,127,127,.08); }
+      h1 { margin: 0; font-size: 22px; }
+      h2 { margin: 0 0 10px; font-size: 16px; }
+      .muted { opacity: .8; font-size: 12px; line-height: 1.5; }
+      .btn { display: inline-block; padding: 9px 12px; border-radius: 10px; border: 0; cursor: pointer; background: #22c55e; color: white; font-weight: 700; }
+      .btn2 { display: inline-block; padding: 9px 12px; border-radius: 10px; border: 0; cursor: pointer; background: #ef4444; color: white; font-weight: 700; }
+      input[type="text"] { width: 100%; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(127,127,127,.35); background: transparent; }
+      code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+      .error { border-color: #ef4444; color: #ef4444; }
+      .limit-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+      .limit-grid input { min-width: 0; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>MJ1GPT-CODEX API 密钥管理</h1>
+
+      {% if error %}
+      <div class="card error">
+        <strong>操作失败：</strong> {{ error }}
+      </div>
+      {% endif %}
+
+      {% if generated_key %}
+      <div class="card">
+        <h2>新生成的 API 密钥（仅显示一次）</h2>
+        <div class="muted">请复制保存，刷新后不会再显示。</div>
+        <div style="margin-top:8px;"><code>{{ generated_key }}</code></div>
+      </div>
+      {% endif %}
+
+      <div class="card">
+        <h2>新增 API 密钥</h2>
+        <form method="post" action="{{ url_for('admin.keys_add') }}">
+          <label class="muted">备注标签（可选）</label>
+          <input type="text" name="label" placeholder="例如：Cherry Studio" />
+          <label class="muted" style="margin-top:10px;">API 密钥（留空则自动生成）</label>
+          <input type="text" name="api_key" placeholder="sk-..." />
+          <label class="muted" style="margin-top:10px;">限额设置（留空=不限）</label>
+          <div class="limit-grid">
+            <input type="text" name="limit_total" placeholder="总次数上限，例如 10000" />
+            <input type="text" name="limit_daily" placeholder="每日上限，例如 5000" />
+            <input type="text" name="limit_concurrency" placeholder="并发上限，例如 3" />
+          </div>
+          <div style="margin-top:12px;">
+            <button class="btn" type="submit">添加</button>
+            <a href="{{ url_for('admin.panel') }}" style="margin-left: 10px;">返回面板</a>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>已有 API 密钥</h2>
+        {% if keys %}
+        <table style="width:100%; border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th align="left" style="padding:6px 4px;">标签</th>
+              <th align="left" style="padding:6px 4px;">密钥</th>
+              <th align="left" style="padding:6px 4px;">创建时间</th>
+              <th align="left" style="padding:6px 4px;">限额配置</th>
+              <th align="left" style="padding:6px 4px;">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for k in keys %}
+            <tr>
+              <td style="padding:6px 4px;">{{ k.label or '密钥' }}</td>
+              <td style="padding:6px 4px;"><code>{{ k.raw or '（历史密钥无法恢复）' }}</code></td>
+              <td style="padding:6px 4px;">{{ k.created_at or '' }}</td>
+              <td style="padding:6px 4px;">
+                <form method="post" action="{{ url_for('admin.keys_update') }}">
+                  <input type="hidden" name="id" value="{{ k.id }}" />
+                  <div class="limit-grid">
+                    <input type="text" name="limit_total" value="{{ k.limits.total or '' }}" placeholder="总次数上限" />
+                    <input type="text" name="limit_daily" value="{{ k.limits.daily or '' }}" placeholder="每日上限" />
+                    <input type="text" name="limit_concurrency" value="{{ k.limits.concurrency or '' }}" placeholder="并发上限" />
+                  </div>
+                  <div style="margin-top:8px;">
+                    <button class="btn" type="submit">保存配置</button>
+                  </div>
+                </form>
+              </td>
+              <td style="padding:6px 4px;">
+                <form method="post" action="{{ url_for('admin.keys_delete') }}" onsubmit="return confirm('确认删除该 API Key？');">
+                  <input type="hidden" name="id" value="{{ k.id }}" />
+                  <button class="btn2" type="submit">删除</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="muted">暂无 API 密钥。你也可以用环境变量 <code>CHATMOCK_API_KEYS</code> 预置。</div>
+        {% endif %}
+      </div>
+    </div>
+  </body>
+</html>

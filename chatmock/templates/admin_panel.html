@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MJ1GPT-CODEX 控制面板</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f8f9fa;
+      }
+      .container {
+        background-color: #ffffff;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        box-sizing: border-box;
+        overflow-x: auto;
+      }
+      h1 {
+        color: #333;
+        text-align: center;
+        margin: 0;
+      }
+      h3 {
+        margin: 8px 0 12px;
+        color: #333;
+      }
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+      }
+      .btn {
+        background-color: #4285f4;
+        color: white;
+        padding: 10px 18px;
+        border: none;
+        border-radius: 5px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      .btn:hover {
+        background-color: #3367d6;
+      }
+      .btn-secondary {
+        background-color: #6c757d;
+      }
+      .btn-danger {
+        background-color: #dc3545;
+      }
+      .btn-small {
+        padding: 6px 10px;
+        font-size: 12px;
+      }
+      .form-group {
+        margin-bottom: 16px;
+      }
+      label {
+        display: block;
+        margin-bottom: 6px;
+        font-weight: bold;
+        color: #555;
+      }
+      input[type="text"],
+      input[type="password"],
+      select,
+      textarea {
+        width: 100%;
+        padding: 10px;
+        border: 2px solid #ddd;
+        border-radius: 5px;
+        font-size: 14px;
+        box-sizing: border-box;
+        background-color: #ffffff;
+      }
+      input[type="text"]:focus,
+      input[type="password"]:focus,
+      select:focus,
+      textarea:focus {
+        border-color: #4285f4;
+        outline: none;
+      }
+      textarea {
+        min-height: 120px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+      }
+      .muted {
+        color: #666;
+        font-size: 12px;
+      }
+      .status {
+        padding: 10px;
+        border-radius: 5px;
+        margin: 10px 0;
+      }
+      .status.success {
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+      }
+      .status.error {
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        color: #721c24;
+      }
+      .status.info {
+        background-color: #d1ecf1;
+        border: 1px solid #bee5eb;
+        color: #0c5460;
+      }
+      .tabs {
+        display: inline-flex;
+        background: linear-gradient(145deg, #f5f5f7, #e8e8ed);
+        padding: 6px;
+        border-radius: 14px;
+        margin-bottom: 25px;
+        gap: 3px;
+        overflow-x: auto;
+        max-width: 100%;
+        user-select: none;
+        box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(255, 255, 255, 0.9);
+        position: relative;
+      }
+      .tab-slider {
+        position: absolute;
+        top: 6px;
+        left: 0;
+        right: 0;
+        height: calc(100% - 12px);
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.06);
+        transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1), right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        z-index: 0;
+        pointer-events: none;
+      }
+      .tab {
+        padding: 10px 18px;
+        cursor: pointer;
+        border: none;
+        background: transparent;
+        border-radius: 10px;
+        color: #666;
+        font-size: 14px;
+        font-weight: 450;
+        white-space: nowrap;
+        position: relative;
+        z-index: 1;
+      }
+      .tab.active {
+        color: #1a1a1a;
+        font-weight: 550;
+      }
+      .tab-content {
+        display: none;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      .tab-content.active {
+        display: block;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 12px;
+      }
+      .kv {
+        display: grid;
+        grid-template-columns: 180px 1fr;
+        gap: 6px 10px;
+        font-size: 13px;
+      }
+      .limit-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .cred-card {
+        background-color: #f8f9fa;
+        border: 1px solid #e1e4e8;
+        border-radius: 8px;
+        padding: 15px;
+        margin: 10px 0;
+      }
+      .cred-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .cred-filename {
+        font-family: monospace;
+        font-weight: bold;
+        color: #333;
+        font-size: 13px;
+      }
+      .badge {
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        color: white;
+      }
+      .badge.ok {
+        background-color: #28a745;
+      }
+      .badge.off {
+        background-color: #6c757d;
+      }
+      .note {
+        background-color: #f8f9fa;
+        border: 1px solid #e1e4e8;
+        border-radius: 5px;
+        padding: 12px;
+        margin: 12px 0;
+        word-break: break-all;
+      }
+      .section {
+        margin-top: 20px;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="topbar">
+        <h1>MJ1GPT-CODEX 控制面板</h1>
+        <form method="post" action="{{ url_for('admin.logout_post') }}">
+          <button class="btn btn-danger" type="submit">退出登录</button>
+        </form>
+      </div>
+
+      <div class="tabs" id="tabs">
+        <div class="tab-slider" id="tabSlider"></div>
+        <button class="tab active" data-tab="statusTab">状态</button>
+        <button class="tab" data-tab="authTab">OAuth 认证</button>
+        <button class="tab" data-tab="keysTab">API 密钥</button>
+        <button class="tab" data-tab="settingsTab">服务参数</button>
+        <button class="tab" data-tab="aboutTab">项目信息</button>
+      </div>
+
+      <div id="statusTab" class="tab-content active">
+        <h3>服务状态</h3>
+        <div class="kv">
+          <div>Auth 文件目录</div><div><code>{{ home_dir }}</code></div>
+          <div>已登录上游</div>
+          <div>
+            {% if has_tokens %}
+              <span class="badge ok">是</span>
+            {% else %}
+              <span class="badge off">否</span>（请到 OAuth 认证页上传 <code>auth.json</code>）
+            {% endif %}
+          </div>
+          <div>OpenAI Compatible Base URL</div><div><code>{{ request.host_url }}v1</code></div>
+          <div>模型列表</div><div><code>{{ request.host_url }}v1/models</code></div>
+          <div>健康检查</div><div><code>{{ request.host_url }}health</code></div>
+          <div>API 密钥保护</div>
+          <div>
+            {% if api_keys_enabled %}
+              <span class="badge ok">已启用</span>
+            {% else %}
+              <span class="badge off">未启用</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div id="authTab" class="tab-content">
+        <h3>OAuth 认证（ChatGPT/Codex）</h3>
+        {% if auth_error %}
+          <div class="status error">{{ auth_error }}</div>
+        {% endif %}
+
+        <div class="section">
+          <div class="status info">
+            云端环境无法直接回调到 localhost。你可以在本机运行一次 <code>python chatmock.py login</code> 生成
+            <code>auth.json</code>，然后上传到这里（支持多账号）。
+          </div>
+        </div>
+
+        <div class="section">
+          <h4>获取授权链接（手动回调）</h4>
+          <form method="post" action="{{ url_for('admin.auth_start') }}">
+            <button class="btn" type="submit">生成授权链接</button>
+          </form>
+          {% if flow %}
+            <div class="note" style="margin-top: 10px;">
+              <div class="muted">链接有效期：{{ flow_expires_in }} 秒</div>
+              <div style="margin-top: 6px;">
+                <a href="{{ flow.auth_url }}" target="_blank">{{ flow.auth_url }}</a>
+              </div>
+            </div>
+            <form method="post" action="{{ url_for('admin.auth_complete') }}">
+              <div class="form-group">
+                <label>粘贴回调 URL / code</label>
+                <input type="text" name="callback_url" placeholder="http://localhost:xxxx/?code=...&state=..." />
+              </div>
+              <button class="btn" type="submit">从回调 URL 获取凭证</button>
+            </form>
+          {% endif %}
+        </div>
+
+        <div class="section">
+          <h4>上传 auth.json</h4>
+          <form method="post" action="{{ url_for('admin.auth_upload') }}" enctype="multipart/form-data">
+            <div class="form-group">
+              <label>选择文件</label>
+              <input type="file" name="auth_file" />
+            </div>
+            <div class="form-group">
+              <label>或粘贴 JSON</label>
+              <textarea name="auth_json" placeholder="{ ... }"></textarea>
+            </div>
+            <button class="btn" type="submit">上传并激活</button>
+          </form>
+        </div>
+
+        <div class="section">
+          <h4>账号列表</h4>
+          {% if accounts %}
+            {% for acc in accounts %}
+              <div class="cred-card">
+                <div class="cred-header">
+                  <div class="cred-filename">{{ acc.label or acc.account_id }}</div>
+                  <div>
+                    {% if acc.account_id == active_account_id %}
+                      <span class="badge ok">当前使用</span>
+                    {% else %}
+                      <span class="badge off">未启用</span>
+                    {% endif %}
+                  </div>
+                </div>
+                <div class="muted">Account ID：<code>{{ acc.account_id }}</code></div>
+                <div class="muted">创建时间：{{ acc.created_at }}</div>
+                <div class="muted">最近刷新：{{ acc.last_refresh }}</div>
+                <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+                  <form method="post" action="{{ url_for('admin.auth_activate') }}">
+                    <input type="hidden" name="account_id" value="{{ acc.account_id }}" />
+                    <button class="btn btn-small" type="submit">设为当前</button>
+                  </form>
+                  <form method="post" action="{{ url_for('admin.auth_delete') }}" onsubmit="return confirm('确认删除该账号？');">
+                    <input type="hidden" name="account_id" value="{{ acc.account_id }}" />
+                    <button class="btn btn-danger btn-small" type="submit">删除</button>
+                  </form>
+                </div>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="muted">暂无账号，请先上传 auth.json。</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div id="keysTab" class="tab-content">
+        <h3>API 密钥管理</h3>
+        {% if key_error %}
+          <div class="status error">{{ key_error }}</div>
+        {% endif %}
+        {% if generated_key %}
+          <div class="status success">
+            新生成的 API 密钥（仅显示一次）：<code>{{ generated_key }}</code>
+          </div>
+        {% endif %}
+
+        <div class="section">
+          <h4>新增 API 密钥</h4>
+          <form method="post" action="{{ url_for('admin.keys_add') }}">
+            <div class="grid">
+              <div class="form-group">
+                <label>备注标签（可选）</label>
+                <input type="text" name="label" placeholder="例如：Cherry Studio" />
+              </div>
+              <div class="form-group">
+                <label>API 密钥（留空自动生成）</label>
+                <input type="text" name="api_key" placeholder="sk-..." />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>限额设置（留空=不限）</label>
+              <div class="limit-grid">
+                <input type="text" name="limit_total" placeholder="总次数上限" />
+                <input type="text" name="limit_daily" placeholder="每日上限" />
+                <input type="text" name="limit_concurrency" placeholder="并发上限" />
+              </div>
+              <div class="muted" style="margin-top: 6px;">
+                三个设置任意填写一个即可保存，未填写代表无限制。
+              </div>
+            </div>
+            <button class="btn" type="submit">添加</button>
+          </form>
+        </div>
+
+        <div class="section">
+          <h4>已有 API 密钥</h4>
+          {% if keys %}
+            {% for k in keys %}
+              <div class="cred-card">
+                <div class="cred-header">
+                  <div class="cred-filename">{{ k.label or '密钥' }}</div>
+                  <div class="muted">{{ k.created_at }}</div>
+                </div>
+                <div class="muted">密钥：<code>{{ k.raw or '（历史密钥无法恢复）' }}</code></div>
+                <form method="post" action="{{ url_for('admin.keys_update') }}" style="margin-top: 10px;">
+                  <input type="hidden" name="id" value="{{ k.id }}" />
+                  <div class="limit-grid">
+                    <input type="text" name="limit_total" value="{{ k.limits.total or '' }}" placeholder="总次数上限" />
+                    <input type="text" name="limit_daily" value="{{ k.limits.daily or '' }}" placeholder="每日上限" />
+                    <input type="text" name="limit_concurrency" value="{{ k.limits.concurrency or '' }}" placeholder="并发上限" />
+                  </div>
+                  <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button class="btn btn-small" type="submit">保存配置</button>
+                    <button class="btn btn-danger btn-small" type="submit" formaction="{{ url_for('admin.keys_delete') }}"
+                      onclick="return confirm('确认删除该 API Key？');">删除</button>
+                  </div>
+                </form>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="muted">暂无 API 密钥。你也可以用环境变量 <code>CHATMOCK_API_KEYS</code> 预置。</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div id="settingsTab" class="tab-content">
+        <h3>服务参数（相当于 serve 的可视化版）</h3>
+        <form method="post" action="{{ url_for('admin.update_settings_form') }}">
+          <div class="grid">
+            <div class="form-group">
+              <label>推理强度（reasoning_effort）</label>
+              <select name="reasoning_effort">
+                {% for v in valid_efforts %}
+                  <option value="{{ v }}" {% if current.reasoning_effort == v %}selected{% endif %}>{{ v }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label>推理摘要（reasoning_summary）</label>
+              <select name="reasoning_summary">
+                {% for v in valid_summaries %}
+                  <option value="{{ v }}" {% if current.reasoning_summary == v %}selected{% endif %}>{{ v }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label>推理兼容模式（reasoning_compat）</label>
+              <select name="reasoning_compat">
+                {% for v in valid_compats %}
+                  <option value="{{ v }}" {% if current.reasoning_compat == v %}selected{% endif %}>{{ v }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label>调试模型（debug_model，可选）</label>
+              <input type="text" name="debug_model" value="{{ current.debug_model or '' }}" placeholder="留空=不覆盖" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>
+              <input type="checkbox" name="compatibility_mode" value="1" {% if current.compatibility_mode %}checked{% endif %} />
+              启用兼容模式（把 system 全部转成 user，并停用系统指令）
+            </label>
+            <div class="muted">启用后更像 2API 的“兼容模式”，适合处理流式空回等异常。</div>
+          </div>
+
+          <div class="form-group">
+            <label>
+              <input type="checkbox" name="expose_reasoning_models" value="1" {% if current.expose_reasoning_models %}checked{% endif %} />
+              暴露推理变体（expose_reasoning_models）
+            </label>
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" name="enable_web_search" value="1" {% if current.enable_web_search %}checked{% endif %} />
+              默认启用 web_search（enable_web_search）
+            </label>
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" name="verbose" value="1" {% if current.verbose %}checked{% endif %} />
+              详细日志（verbose）
+            </label>
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" name="verbose_obfuscation" value="1" {% if current.verbose_obfuscation %}checked{% endif %} />
+              底层 SSE 日志（verbose_obfuscation）
+            </label>
+          </div>
+          <button class="btn" type="submit">保存并应用</button>
+        </form>
+
+        <div class="section">
+          <form method="post" action="{{ url_for('admin.reset_settings_form') }}">
+            <button class="btn btn-danger" type="submit">重置为默认（删除 server_settings.json）</button>
+          </form>
+          <div class="muted" style="margin-top: 8px;">保存位置：<code>{{ home_dir }}/server_settings.json</code></div>
+        </div>
+
+        <div class="section">
+          <h4>已保存配置（落盘）</h4>
+          <pre class="note">{{ saved | tojson(indent=2) }}</pre>
+        </div>
+      </div>
+
+      <div id="aboutTab" class="tab-content">
+        <h3>项目信息</h3>
+        <div class="status info">
+          这是 MJ1GPT-CODEX（ChatMock 改造版），用于把 ChatGPT/Codex 登录态转成 OpenAI Compatible 接口。
+        </div>
+        <div class="note">
+          <div>GitHub：<a href="https://github.com/RayBytes/ChatMock" target="_blank">https://github.com/RayBytes/ChatMock</a></div>
+          <div class="muted" style="margin-top: 6px;">已按 gcli2api 控制面板的 UI 风格重做，并加入 API Key 管理与兼容模式配置。</div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const tabs = document.querySelectorAll(".tab");
+      const contents = document.querySelectorAll(".tab-content");
+      const slider = document.getElementById("tabSlider");
+      const tabsWrap = document.getElementById("tabs");
+
+      function activateTab(tab) {
+        tabs.forEach((t) => t.classList.remove("active"));
+        contents.forEach((c) => c.classList.remove("active"));
+        tab.classList.add("active");
+        const target = document.getElementById(tab.dataset.tab);
+        if (target) target.classList.add("active");
+        updateSlider(tab);
+      }
+
+      function updateSlider(activeTab) {
+        if (!activeTab || !slider || !tabsWrap) return;
+        const tabRect = activeTab.getBoundingClientRect();
+        const wrapRect = tabsWrap.getBoundingClientRect();
+        const left = tabRect.left - wrapRect.left;
+        const right = wrapRect.right - tabRect.right;
+        slider.style.left = left + "px";
+        slider.style.right = right + "px";
+      }
+
+      tabs.forEach((tab) => {
+        tab.addEventListener("click", () => activateTab(tab));
+      });
+      window.addEventListener("resize", () => {
+        const active = document.querySelector(".tab.active");
+        if (active) updateSlider(active);
+      });
+      const initActive = document.querySelector(".tab.active");
+      if (initActive) updateSlider(initActive);
+    </script>
+  </body>
+</html>

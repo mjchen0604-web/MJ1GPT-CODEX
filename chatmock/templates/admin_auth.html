@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>MJ1GPT-CODEX 认证管理</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; }
+      .wrap { max-width: 980px; margin: 32px auto; padding: 0 16px; }
+      .card { margin-top: 16px; border: 1px solid rgba(127,127,127,.3); border-radius: 12px; padding: 16px; background: rgba(127,127,127,.08); }
+      h1 { margin: 0; font-size: 22px; }
+      h2 { margin: 0 0 10px; font-size: 16px; }
+      .muted { opacity: .8; font-size: 12px; line-height: 1.5; }
+      code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+      textarea { width: 100%; height: 220px; padding: 10px; border-radius: 10px; border: 1px solid rgba(127,127,127,.35); background: transparent; }
+      input[type="file"] { width: 100%; }
+      .btn { display: inline-block; padding: 9px 12px; border-radius: 10px; border: 0; cursor: pointer; background: #3b82f6; color: white; font-weight: 700; }
+      .btn2 { display: inline-block; padding: 9px 12px; border-radius: 10px; border: 0; cursor: pointer; background: #ef4444; color: white; font-weight: 700; }
+      .error { border-color: #ef4444; color: #ef4444; }
+      a { color: inherit; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>MJ1GPT-CODEX 认证管理</h1>
+      <div class="muted" style="margin-top: 8px;">
+        云端环境无法直接接收 <code>login</code> 的本机回调（MJ1GPT-CODEX OAuth 固定回调到 <code>localhost</code>）。
+        推荐：生成授权链接 → 手动粘贴回调 URL；或在本机先跑一次 <code>python chatmock.py login</code> 拿到 <code>auth.json</code> 再上传。
+      </div>
+
+      {% if error %}
+      <div class="card error">
+        <strong>操作失败：</strong> {{ error }}
+      </div>
+      {% endif %}
+
+      <div class="card">
+        <h2>状态</h2>
+        <div>auth.json 目录：<code>{{ home_dir }}</code></div>
+        <div>已登录上游：{% if has_tokens %}<span style="color:#22c55e;">是</span>{% else %}<span style="color:#ef4444;">否</span>{% endif %}</div>
+        <div class="muted" style="margin-top: 8px;">
+          注意：<code>auth.json</code> 含敏感凭据，请只在你信任的环境里上传，并确保持久化磁盘/日志不会泄露。
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>账号列表</h2>
+        {% if accounts %}
+        <div class="muted">当前默认账号：<code>{{ active_account_id or '未设置' }}</code></div>
+        <div class="muted" style="margin-top:4px;">按账号选择：请求头可传 <code>X-ChatMock-Account</code> = 账号 ID。</div>
+        <table style="width:100%; margin-top:10px; border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th align="left" style="padding:6px 4px;">标签</th>
+              <th align="left" style="padding:6px 4px;">账号 ID</th>
+              <th align="left" style="padding:6px 4px;">最后刷新</th>
+              <th align="left" style="padding:6px 4px;">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for acc in accounts %}
+            <tr>
+              <td style="padding:6px 4px;">{{ acc.label or '账号' }}</td>
+              <td style="padding:6px 4px;"><code>{{ acc.account_id }}</code></td>
+              <td style="padding:6px 4px;">{{ acc.last_refresh or '' }}</td>
+              <td style="padding:6px 4px; display:flex; gap:8px;">
+                {% if active_account_id != acc.account_id %}
+                <form method="post" action="{{ url_for('admin.auth_activate') }}">
+                  <input type="hidden" name="account_id" value="{{ acc.account_id }}" />
+                  <button class="btn" type="submit">设为默认</button>
+                </form>
+                {% else %}
+                <span class="muted">默认</span>
+                {% endif %}
+                <form method="post" action="{{ url_for('admin.auth_delete') }}" onsubmit="return confirm('确认删除该账号？');">
+                  <input type="hidden" name="account_id" value="{{ acc.account_id }}" />
+                  <button class="btn2" type="submit">删除</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="muted">暂无账号，请先完成授权或上传 auth.json。</div>
+        {% endif %}
+      </div>
+
+      <div class="card">
+        <h2>手动 OAuth（云端推荐）</h2>
+        <div class="muted">
+          1) 点击“生成授权链接”，用浏览器完成登录；2) 登录后会跳回 <code>localhost</code>，浏览器可能显示无法访问，但地址栏包含 <code>code</code> 与 <code>state</code>；3) 复制完整回调 URL 粘贴到下方。
+        </div>
+        <form method="post" action="{{ url_for('admin.auth_start') }}" style="margin-top: 12px;">
+          <button class="btn" type="submit">生成授权链接</button>
+        </form>
+        {% if flow %}
+        <div class="muted" style="margin-top: 10px;">授权链接（剩余约 {{ flow_expires_in }} 秒）</div>
+        <div style="margin-top: 6px;">
+          <a href="{{ flow['auth_url'] }}" target="_blank" rel="noopener">打开授权链接</a>
+        </div>
+        <div class="muted" style="margin-top: 6px; word-break: break-all;">
+          <code>{{ flow['auth_url'] }}</code>
+        </div>
+        {% else %}
+        <div class="muted" style="margin-top: 10px;">尚未生成授权链接。</div>
+        {% endif %}
+
+        <form method="post" action="{{ url_for('admin.auth_complete') }}" style="margin-top: 12px;">
+          <div class="muted" style="margin: 10px 0 6px;">粘贴回调 URL（或仅 code）</div>
+          <textarea name="callback_url" placeholder="http://localhost:1455/auth/callback?state=...&code=..."></textarea>
+          <div style="margin-top: 12px;">
+            <button class="btn" type="submit">完成授权并保存</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>上传 auth.json（推荐：直接选文件）</h2>
+        <form method="post" action="{{ url_for('admin.auth_upload') }}" enctype="multipart/form-data">
+          <div class="muted">方式 1：选择文件</div>
+          <input type="file" name="auth_file" accept="application/json" />
+          <div class="muted" style="margin: 10px 0 6px;">方式 2：粘贴 JSON 内容</div>
+          <textarea name="auth_json" placeholder="{ ... }"></textarea>
+          <div style="margin-top: 12px;">
+            <button class="btn" type="submit">上传并保存</button>
+            <a href="{{ url_for('admin.panel') }}" style="margin-left: 10px;">返回面板</a>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>清除 auth.json</h2>
+        <form method="post" action="{{ url_for('admin.auth_clear') }}">
+          <button class="btn2" type="submit">删除 auth.json</button>
+        </form>
+      </div>
+    </div>
+  </body>
+</html>
