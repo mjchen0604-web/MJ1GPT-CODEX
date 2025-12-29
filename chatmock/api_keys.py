@@ -5,15 +5,19 @@ import hashlib
 import json
 import os
 import secrets
+import threading
 from typing import Any, Dict, List
 
-from flask import Response, jsonify, make_response, request, g
+from flask import Response, jsonify, make_response, request
 
 from .utils import get_home_dir
 
 
 STORE_FILENAME = "api_keys.json"
+USAGE_FILENAME = "api_keys_usage.json"
 _USAGE_STATE: Dict[str, Dict[str, Any]] = {}
+_USAGE_LOADED = False
+_USAGE_LOCK = threading.Lock()
 
 
 def _now_iso() -> str:
@@ -47,13 +51,61 @@ def normalize_limits(raw: Dict[str, Any] | None) -> Dict[str, int | None]:
     return {
         "total": _parse_limit(raw.get("total")),
         "daily": _parse_limit(raw.get("daily")),
-        "concurrency": _parse_limit(raw.get("concurrency")),
     }
 
 
 def store_path(home_dir: str | None = None) -> str:
     home = home_dir or get_home_dir()
     return os.path.join(home, STORE_FILENAME)
+
+
+def usage_path(home_dir: str | None = None) -> str:
+    home = home_dir or get_home_dir()
+    return os.path.join(home, USAGE_FILENAME)
+
+
+def _normalize_usage_state(state: Dict[str, Any] | None) -> Dict[str, Any]:
+    state = state if isinstance(state, dict) else {}
+    total = int(state.get("total_count") or 0)
+    day_count = int(state.get("day_count") or 0)
+    day = state.get("day") if isinstance(state.get("day"), str) else None
+    return {
+        "total_count": max(0, total),
+        "day": day,
+        "day_count": max(0, day_count),
+    }
+
+
+def _load_usage_state() -> None:
+    global _USAGE_LOADED
+    if _USAGE_LOADED:
+        return
+    _USAGE_LOADED = True
+    path = usage_path()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            keys = data.get("keys")
+            if isinstance(keys, dict):
+                for key_id, state in keys.items():
+                    if isinstance(key_id, str):
+                        _USAGE_STATE[key_id] = _normalize_usage_state(state)
+    except FileNotFoundError:
+        return
+    except Exception:
+        return
+
+
+def _save_usage_state() -> None:
+    home = get_home_dir()
+    path = usage_path(home)
+    try:
+        os.makedirs(home, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"keys": _USAGE_STATE}, f, indent=2)
+    except Exception:
+        return
 
 
 def load_api_keys(home_dir: str | None = None) -> Dict[str, Any]:
@@ -121,6 +173,34 @@ def add_key(
     return store
 
 
+def update_key(
+    store: Dict[str, Any],
+    key_id: str,
+    *,
+    label: str | None = None,
+    raw_key: str | None = None,
+    limits: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    keys = list_keys(store)
+    updated = []
+    for k in keys:
+        if k.get("id") != key_id:
+            updated.append(k)
+            continue
+        entry = dict(k)
+        if isinstance(label, str) and label.strip():
+            entry["label"] = label.strip()
+        if isinstance(raw_key, str) and raw_key.strip():
+            entry["raw"] = raw_key.strip()
+            entry["hash"] = _hash_key(entry["raw"])
+            entry["last4"] = entry["raw"][-4:] if len(entry["raw"]) >= 4 else entry["raw"]
+        if limits is not None:
+            entry["limits"] = normalize_limits(limits)
+        updated.append(entry)
+    store["keys"] = updated
+    return store
+
+
 def delete_key(store: Dict[str, Any], key_id: str) -> Dict[str, Any]:
     keys = list_keys(store)
     store["keys"] = [k for k in keys if k.get("id") != key_id]
@@ -128,18 +208,7 @@ def delete_key(store: Dict[str, Any], key_id: str) -> Dict[str, Any]:
 
 
 def update_key_limits(store: Dict[str, Any], key_id: str, limits: Dict[str, Any]) -> Dict[str, Any]:
-    keys = list_keys(store)
-    new_limits = normalize_limits(limits)
-    updated = []
-    for k in keys:
-        if k.get("id") == key_id:
-            entry = dict(k)
-            entry["limits"] = new_limits
-            updated.append(entry)
-        else:
-            updated.append(k)
-    store["keys"] = updated
-    return store
+    return update_key(store, key_id, limits=limits)
 
 
 def env_keys() -> List[str]:
@@ -180,21 +249,20 @@ def verify_token(token: str, store: Dict[str, Any]) -> bool:
 
 
 def _get_usage_state(key_id: str) -> Dict[str, Any]:
+    _load_usage_state()
     state = _USAGE_STATE.get(key_id)
     if not isinstance(state, dict):
-        state = {"total_count": 0, "day": None, "day_count": 0, "inflight": 0}
+        state = {"total_count": 0, "day": None, "day_count": 0}
         _USAGE_STATE[key_id] = state
     return state
 
 
-def _check_and_track_limits(entry: Dict[str, Any]) -> tuple[bool, str | None, bool]:
+def _check_and_track_limits(entry: Dict[str, Any]) -> tuple[bool, str | None]:
     limits = normalize_limits(entry.get("limits"))
-    if not any(limits.values()):
-        return True, None, False
 
     key_id = entry.get("id") or ""
     if not key_id:
-        return True, None, False
+        return True, None
 
     state = _get_usage_state(key_id)
     now_day = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
@@ -204,34 +272,43 @@ def _check_and_track_limits(entry: Dict[str, Any]) -> tuple[bool, str | None, bo
         state["day_count"] = 0
 
     if limits["total"] is not None and state.get("total_count", 0) >= limits["total"]:
-        return False, "Total quota exceeded", False
+        return False, "Total quota exceeded"
     if limits["daily"] is not None and state["day_count"] >= limits["daily"]:
-        return False, "Daily quota exceeded", False
-    if limits["concurrency"] is not None and state["inflight"] >= limits["concurrency"]:
-        return False, "Concurrent limit exceeded", False
+        return False, "Daily quota exceeded"
 
     state["total_count"] = int(state.get("total_count", 0)) + 1
     state["day_count"] += 1
-    if limits["concurrency"] is not None:
-        state["inflight"] += 1
-        return True, None, True
-    return True, None, False
+    with _USAGE_LOCK:
+        _save_usage_state()
+    return True, None
 
 
-def release_request(key_id: str | None) -> None:
-    if not key_id:
-        return
-    state = _USAGE_STATE.get(key_id)
-    if not isinstance(state, dict):
-        return
-    inflight = int(state.get("inflight") or 0)
-    state["inflight"] = max(0, inflight - 1)
+def attach_usage(keys: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    _load_usage_state()
+    for k in keys:
+        key_id = k.get("id") if isinstance(k, dict) else None
+        if not isinstance(key_id, str):
+            continue
+        state = _USAGE_STATE.get(key_id) or {}
+        k["usage"] = {
+            "total": int(state.get("total_count") or 0),
+            "daily": int(state.get("day_count") or 0),
+            "day": state.get("day") if isinstance(state.get("day"), str) else None,
+        }
+    return keys
+
+
+def reset_usage(key_id: str | None = None) -> None:
+    _load_usage_state()
+    with _USAGE_LOCK:
+        if key_id:
+            _USAGE_STATE.pop(key_id, None)
+        else:
+            _USAGE_STATE.clear()
+        _save_usage_state()
 
 
 def attach_release(resp: Response) -> Response:
-    key_id = getattr(g, "_chatmock_key_id", None)
-    if key_id:
-        resp.call_on_close(lambda: release_request(key_id))
     return resp
 
 
@@ -247,10 +324,8 @@ def require_api_key() -> Response | None:
         return resp
     entry = _find_key_entry(token, store)
     if entry:
-        allowed, reason, track_concurrency = _check_and_track_limits(entry)
+        allowed, reason = _check_and_track_limits(entry)
         if not allowed:
             resp = make_response(jsonify({"error": {"message": reason}}), 429)
             return resp
-        if track_concurrency:
-            g._chatmock_key_id = entry.get("id")
     return None

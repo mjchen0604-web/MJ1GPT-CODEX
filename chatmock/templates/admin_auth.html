@@ -119,8 +119,8 @@
       <div class="card">
         <h2>上传 auth.json（推荐：直接选文件）</h2>
         <form method="post" action="{{ url_for('admin.auth_upload') }}" enctype="multipart/form-data">
-          <div class="muted">方式 1：选择文件</div>
-          <input type="file" name="auth_file" accept="application/json" />
+          <div class="muted">方式 1：选择文件（可多选）</div>
+          <input type="file" name="auth_file" accept="application/json" multiple />
           <div class="muted" style="margin: 10px 0 6px;">方式 2：粘贴 JSON 内容</div>
           <textarea name="auth_json" placeholder="{ ... }"></textarea>
           <div style="margin-top: 12px;">

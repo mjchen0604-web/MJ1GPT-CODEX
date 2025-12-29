@@ -17,7 +17,7 @@
       input[type="text"] { width: 100%; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(127,127,127,.35); background: transparent; }
       code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
       .error { border-color: #ef4444; color: #ef4444; }
-      .limit-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+      .limit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
       .limit-grid input { min-width: 0; }
     </style>
   </head>
@@ -50,7 +50,6 @@
           <div class="limit-grid">
             <input type="text" name="limit_total" placeholder="总次数上限，例如 10000" />
             <input type="text" name="limit_daily" placeholder="每日上限，例如 5000" />
-            <input type="text" name="limit_concurrency" placeholder="并发上限，例如 3" />
           </div>
           <div style="margin-top:12px;">
             <button class="btn" type="submit">添加</button>
@@ -84,7 +83,6 @@
                   <div class="limit-grid">
                     <input type="text" name="limit_total" value="{{ k.limits.total or '' }}" placeholder="总次数上限" />
                     <input type="text" name="limit_daily" value="{{ k.limits.daily or '' }}" placeholder="每日上限" />
-                    <input type="text" name="limit_concurrency" value="{{ k.limits.concurrency or '' }}" placeholder="并发上限" />
                   </div>
                   <div style="margin-top:8px;">
                     <button class="btn" type="submit">保存配置</button>

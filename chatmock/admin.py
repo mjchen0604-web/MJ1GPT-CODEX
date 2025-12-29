@@ -41,11 +41,13 @@ from .auth_store import (
 from .api_keys import (
     add_key,
     delete_key as delete_api_key,
+    attach_usage,
     list_keys,
     load_api_keys,
+    reset_usage,
     save_api_keys,
     env_keys,
-    update_key_limits,
+    update_key,
 )
 from . import oauth_flow
 from .utils import get_home_dir, read_auth_file, write_auth_file
@@ -186,7 +188,7 @@ def panel() -> Response:
     home_dir = get_home_dir()
     auth_ctx = _auth_context()
     keys_store = load_api_keys()
-    keys = list_keys(keys_store)
+    keys = attach_usage(list_keys(keys_store))
     generated = session.pop("generated_key", None)
     keys_enabled = bool(env_keys() or keys)
 
@@ -364,39 +366,60 @@ def auth_upload() -> Response:
     if not session.get("chatmock_admin"):
         return redirect(url_for("admin.login_page"))
 
-    content = None
-    file = request.files.get("auth_file")
-    if file and getattr(file, "filename", ""):
+    def _parse_payloads(raw: str) -> List[Dict[str, Any]]:
         try:
-            content = file.read().decode("utf-8", errors="strict")
+            data = json.loads(raw) if raw else None
         except Exception:
-            content = None
-    if content is None:
+            return []
+        if isinstance(data, dict):
+            return [data]
+        if isinstance(data, list):
+            return [d for d in data if isinstance(d, dict)]
+        return []
+
+    payloads: List[Dict[str, Any]] = []
+    files = request.files.getlist("auth_file")
+    for file in files:
+        if not file or not getattr(file, "filename", ""):
+            continue
+        raw = b""
+        try:
+            raw = file.read()
+            content = raw.decode("utf-8-sig", errors="strict")
+        except Exception:
+            try:
+                content = raw.decode("utf-8", errors="ignore")
+            except Exception:
+                content = ""
+        payloads.extend(_parse_payloads(content))
+
+    if not payloads:
         content = (request.form.get("auth_json") or "").strip()
+        payloads = _parse_payloads(content)
 
-    try:
-        parsed = json.loads(content) if content else None
-    except Exception:
-        parsed = None
-
-    if not isinstance(parsed, dict):
+    if not payloads:
         session["auth_error"] = "auth.json 解析失败，请确认文件格式"
         return redirect(url_for("admin.panel"))
 
-    account = account_from_auth_json(parsed)
     home_dir = get_home_dir()
-    if account:
-        store = load_store(home_dir) or {"accounts": []}
+    store = load_store(home_dir) or {"accounts": []}
+    imported = 0
+    for parsed in payloads:
+        account = account_from_auth_json(parsed)
+        if not account:
+            continue
         store = upsert_account(store, account)
         store = set_active(store, account.get("account_id"))
-        if not save_store(store, home_dir):
-            session["auth_error"] = "写入 auth_store 失败"
-            return redirect(url_for("admin.panel"))
-        write_active_auth(store, account.get("account_id"))
-    else:
-        if not write_auth_file(parsed):
-            session["auth_error"] = "写入 auth.json 失败"
-            return redirect(url_for("admin.panel"))
+        imported += 1
+
+    if not imported:
+        session["auth_error"] = "auth.json 未包含有效账号信息（需要含 id_token 或 account_id）"
+        return redirect(url_for("admin.panel"))
+
+    if not save_store(store, home_dir):
+        session["auth_error"] = "写入 auth_store 失败"
+        return redirect(url_for("admin.panel"))
+    write_active_auth(store, store.get("active_account_id"))
 
     return redirect(url_for("admin.panel"))
 
@@ -467,8 +490,7 @@ def keys_add() -> Response:
 
     total = _parse_limit("limit_total")
     daily = _parse_limit("limit_daily")
-    concurrency = _parse_limit("limit_concurrency")
-    if "__error__" in (total, daily, concurrency):
+    if "__error__" in (total, daily):
         session["key_error"] = "限额必须是正整数（留空=不限）"
         return redirect(url_for("admin.panel"))
 
@@ -480,7 +502,7 @@ def keys_add() -> Response:
         store,
         raw_key,
         label,
-        limits={"total": total, "daily": daily, "concurrency": concurrency},
+        limits={"total": total, "daily": daily},
     )
     if not save_api_keys(store):
         session["key_error"] = "保存 API Key 失败"
@@ -515,16 +537,31 @@ def keys_update() -> Response:
         return val if val > 0 else None
 
     key_id = (request.form.get("id") or "").strip()
+    label = (request.form.get("label") or "").strip()
+    raw_key = (request.form.get("api_key") or "").strip()
     total = _parse_limit("limit_total")
     daily = _parse_limit("limit_daily")
-    concurrency = _parse_limit("limit_concurrency")
-    if "__error__" in (total, daily, concurrency):
+    if "__error__" in (total, daily):
         session["key_error"] = "限额必须是正整数（留空=不限）"
         return redirect(url_for("admin.panel"))
 
     store = load_api_keys()
-    store = update_key_limits(store, key_id, {"total": total, "daily": daily, "concurrency": concurrency})
+    store = update_key(
+        store,
+        key_id,
+        label=label or None,
+        raw_key=raw_key or None,
+        limits={"total": total, "daily": daily},
+    )
     save_api_keys(store)
+    return redirect(url_for("admin.panel"))
+
+
+@admin_bp.post("/keys/reset-usage")
+def keys_reset_usage() -> Response:
+    if not session.get("chatmock_admin"):
+        return redirect(url_for("admin.login_page"))
+    reset_usage()
     return redirect(url_for("admin.panel"))
 
 
