@@ -152,6 +152,8 @@ def _auth_context(error: str | None = None) -> Dict[str, Any]:
     store = load_store(home_dir)
     accounts = store.get("accounts") if isinstance(store, dict) else []
     active_account_id = store.get("active_account_id") if isinstance(store, dict) else ""
+    strategy = (os.getenv("CHATMOCK_ACCOUNT_STRATEGY") or os.getenv("CHATGPT_LOCAL_ACCOUNT_STRATEGY") or "").strip().lower()
+    is_round_robin = strategy in ("round_robin", "round-robin", "rr")
     active_account = get_account(store, active_account_id) if isinstance(store, dict) else None
     has_tokens = bool((active_account or {}).get("tokens", {}).get("access_token"))
     if not has_tokens:
@@ -195,6 +197,7 @@ def _auth_context(error: str | None = None) -> Dict[str, Any]:
         "error": error,
         "accounts": decorated_accounts,
         "active_account_id": active_account_id or "",
+        "is_round_robin": is_round_robin,
     }
 
 

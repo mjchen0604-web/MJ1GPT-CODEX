@@ -339,7 +339,7 @@
                   <div>
                     {% if acc.cooldown_active %}
                       <span class="badge warn">冷却中</span>
-                    {% elif acc.account_id == active_account_id %}
+                    {% elif (not is_round_robin) and acc.account_id == active_account_id %}
                       <span class="badge ok">当前使用</span>
                     {% endif %}
                   </div>
@@ -360,10 +360,12 @@
                 <div class="muted">最近成功：{{ acc.last_success_at }}</div>
                 {% endif %}
                 <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+                  {% if not is_round_robin %}
                   <form method="post" action="{{ url_for('admin.auth_activate') }}">
                     <input type="hidden" name="account_id" value="{{ acc.account_id }}" />
                     <button class="btn btn-small" type="submit">设为当前</button>
                   </form>
+                  {% endif %}
                   <form method="post" action="{{ url_for('admin.auth_delete') }}" onsubmit="return confirm('确认删除该账号？');">
                     <input type="hidden" name="account_id" value="{{ acc.account_id }}" />
                     <button class="btn btn-danger btn-small" type="submit">删除</button>
