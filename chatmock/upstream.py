@@ -28,8 +28,9 @@ def _log_json(prefix: str, payload: Any) -> None:
 
 
 def normalize_model_name(name: str | None, debug_model: str | None = None) -> str:
-    if isinstance(debug_model, str) and debug_model.strip():
-        return debug_model.strip()
+    override = debug_model.strip() if isinstance(debug_model, str) and debug_model.strip() else None
+    if override:
+        name = override
     if not isinstance(name, str) or not name.strip():
         return "gpt-5"
     base = name.split(":", 1)[0].strip()
