@@ -197,6 +197,7 @@ def start_upstream_request(
 
     candidate_ids: List[str] = []
     cooldown_until = None
+    is_round_robin = False
     if not account_override:
         try:
             from . import auth_store as _auth_store
@@ -206,6 +207,7 @@ def start_upstream_request(
             if has_accounts:
                 strategy = (os.getenv("CHATMOCK_ACCOUNT_STRATEGY") or os.getenv("CHATGPT_LOCAL_ACCOUNT_STRATEGY") or "").strip().lower()
                 if strategy in ("round_robin", "round-robin", "rr"):
+                    is_round_robin = True
                     accounts = _auth_store.round_robin_accounts(store)
                 else:
                     accounts = _auth_store.list_available_accounts(store)
@@ -243,7 +245,9 @@ def start_upstream_request(
     if account_override:
         attempt_ids = [account_override]
     elif candidate_ids:
-        if failover_attempts is None:
+        if is_round_robin:
+            attempts = len(candidate_ids)
+        elif failover_attempts is None:
             attempts = len(candidate_ids)
         else:
             attempts = min(len(candidate_ids), 1 + failover_attempts)

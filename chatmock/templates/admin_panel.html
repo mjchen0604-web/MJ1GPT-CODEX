@@ -339,7 +339,9 @@
                   <div>
                     {% if acc.cooldown_active %}
                       <span class="badge warn">冷却中</span>
-                    {% elif (not is_round_robin) and acc.account_id == active_account_id %}
+                    {% elif is_round_robin %}
+                      <span class="badge ok">轮询</span>
+                    {% elif acc.account_id == active_account_id %}
                       <span class="badge ok">当前使用</span>
                     {% endif %}
                   </div>
