@@ -95,11 +95,12 @@ def _parse_failover_attempts(raw: str | None) -> int | None:
     return parsed
 
 
-def _extract_error_info(resp: requests.Response) -> tuple[str | None, str | None]:
+def _extract_error_info(resp: requests.Response) -> tuple[str | None, str | None, int | None]:
     try:
         payload = resp.json()
     except Exception:
-        return None, None
+        return None, None, None
+    retry_after = None
     if isinstance(payload, dict):
         err = payload.get("error")
         if isinstance(err, dict):
@@ -107,8 +108,20 @@ def _extract_error_info(resp: requests.Response) -> tuple[str | None, str | None
             code = err.get("code")
             msg = msg if isinstance(msg, str) and msg else None
             code = code if isinstance(code, str) and code else None
-            return msg, code
-    return None, None
+            if not code:
+                etype = err.get("type")
+                if isinstance(etype, str) and etype:
+                    code = etype
+            for key in ("retry_after", "retry_after_seconds", "resets_in_seconds"):
+                value = err.get(key)
+                if isinstance(value, (int, float)) and value > 0:
+                    retry_after = int(value)
+                    break
+            return msg, code, retry_after
+        detail = payload.get("detail")
+        if isinstance(detail, str) and detail:
+            return detail, None, None
+    return None, None, None
 
 
 def start_upstream_request(
@@ -312,7 +325,9 @@ def start_upstream_request(
             return upstream, None
 
         should_retry = attempt < (len(attempt_ids) - 1)
-        err_message, err_code = _extract_error_info(upstream)
+        err_message, err_code, err_retry_after = _extract_error_info(upstream)
+        if isinstance(err_retry_after, int) and err_retry_after > 0:
+            retry_after = err_retry_after
         record_status = upstream.status_code
         if err_code == "RESPONSES_TOOLS_REJECTED" and tools:
             record_status = 400
