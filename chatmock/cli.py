@@ -376,7 +376,7 @@ def main() -> None:
         if getattr(args, "json", False):
             print(json.dumps(auth or {}, indent=2))
             sys.exit(0)
-        access_token, account_id, id_token = load_chatgpt_tokens()
+        access_token, account_id, id_token, _ = load_chatgpt_tokens()
         if not access_token or not id_token:
             print("👤 Account")
             print("  • Not signed in")

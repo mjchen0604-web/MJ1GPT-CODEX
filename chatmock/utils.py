@@ -222,9 +222,10 @@ def convert_tools_chat_to_responses(tools: Any) -> List[Dict[str, Any]]:
 def load_chatgpt_tokens(
     ensure_fresh: bool = True,
     account_id_override: Optional[str] = None,
-) -> tuple[str | None, str | None, str | None]:
+) -> tuple[str | None, str | None, str | None, datetime.datetime | None]:
     store = None
     account = None
+    cooldown_until: datetime.datetime | None = None
     try:
         from . import auth_store as _auth_store
 
@@ -237,7 +238,9 @@ def load_chatgpt_tokens(
                 if strategy in ("round_robin", "round-robin", "rr"):
                     account = _auth_store.pick_round_robin_account(store)
                 if account is None:
-                    account = _auth_store.get_account(store, None)
+                    account = _auth_store.pick_first_available_account(store, store.get("active_account_id"))
+                if account is None:
+                    cooldown_until = _auth_store.earliest_cooldown(store)
     except Exception:
         store = None
         account = None
@@ -292,11 +295,14 @@ def load_chatgpt_tokens(
         access_token = access_token if isinstance(access_token, str) and access_token else None
         id_token = id_token if isinstance(id_token, str) and id_token else None
         account_id = account_id if isinstance(account_id, str) and account_id else None
-        return access_token, account_id, id_token
+        return access_token, account_id, id_token, None
+
+    if cooldown_until is not None:
+        return None, None, None, cooldown_until
 
     auth = read_auth_file()
     if not isinstance(auth, dict):
-        return None, None, None
+        return None, None, None, None
     try:
         from . import auth_store as _auth_store
         auth = _auth_store.normalize_auth_json(auth)
@@ -342,7 +348,7 @@ def load_chatgpt_tokens(
     access_token = access_token if isinstance(access_token, str) and access_token else None
     id_token = id_token if isinstance(id_token, str) and id_token else None
     account_id = account_id if isinstance(account_id, str) and account_id else None
-    return access_token, account_id, id_token
+    return access_token, account_id, id_token, None
 
 
 def _should_refresh_access_token(access_token: Optional[str], last_refresh: Any) -> bool:
@@ -446,11 +452,13 @@ def _now_iso8601() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def get_effective_chatgpt_auth(account_id_override: Optional[str] = None) -> tuple[str | None, str | None]:
-    access_token, account_id, id_token = load_chatgpt_tokens(account_id_override=account_id_override)
+def get_effective_chatgpt_auth(
+    account_id_override: Optional[str] = None,
+) -> tuple[str | None, str | None, datetime.datetime | None]:
+    access_token, account_id, id_token, cooldown_until = load_chatgpt_tokens(account_id_override=account_id_override)
     if not account_id:
         account_id = _derive_account_id(id_token)
-    return access_token, account_id
+    return access_token, account_id, cooldown_until
 
 
 def sse_translate_chat(

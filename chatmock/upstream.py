@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import time
@@ -12,6 +13,7 @@ from .config import CHATGPT_RESPONSES_URL
 from .http import build_cors_headers
 from .session import ensure_session_id
 from flask import request as flask_request
+from .auth_store import record_account_result
 from .utils import get_effective_chatgpt_auth
 
 
@@ -61,6 +63,18 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt-5.1-codex-mini": "gpt-5.1-codex-mini",
     }
     return mapping.get(base, base)
+
+
+def _retry_after_seconds(headers: Dict[str, str] | None) -> int | None:
+    if not isinstance(headers, dict):
+        return None
+    raw = headers.get("Retry-After")
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except Exception:
+        return None
 
 
 def start_upstream_request(
@@ -135,8 +149,24 @@ def start_upstream_request(
     attempts = 1 if account_override else (1 + failover_attempts)
     last_upstream = None
     for attempt in range(attempts):
-        access_token, account_id = get_effective_chatgpt_auth(account_override)
+        access_token, account_id, cooldown_until = get_effective_chatgpt_auth(account_override)
         if not access_token or not account_id:
+            if cooldown_until:
+                now = datetime.datetime.now(datetime.timezone.utc)
+                retry_after = int(max(0, (cooldown_until - now).total_seconds()))
+                err = {
+                    "error": {
+                        "message": "All accounts are cooling down. Retry later.",
+                        "code": "ACCOUNTS_COOLDOWN",
+                        "retry_after": retry_after,
+                    }
+                }
+                resp = make_response(jsonify(err), 429)
+                if retry_after:
+                    resp.headers["Retry-After"] = str(retry_after)
+                for k, v in build_cors_headers().items():
+                    resp.headers.setdefault(k, v)
+                return None, resp
             resp = make_response(
                 jsonify(
                     {
@@ -175,6 +205,17 @@ def start_upstream_request(
             return None, resp
 
         last_upstream = upstream
+        retry_after = _retry_after_seconds(getattr(upstream, "headers", {}) or {})
+        if upstream.status_code < 400:
+            record_account_result(account_id, success=True)
+        else:
+            record_account_result(
+                account_id,
+                success=False,
+                status_code=upstream.status_code,
+                retry_after_seconds=retry_after,
+            )
+
         if upstream.status_code in (401, 403, 429) and attempt < (attempts - 1):
             try:
                 upstream.close()

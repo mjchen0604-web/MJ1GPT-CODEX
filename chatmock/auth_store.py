@@ -31,14 +31,41 @@ def _normalize_store(store: Dict[str, Any]) -> Dict[str, Any]:
     return store
 
 
-def pick_round_robin_account(store: Dict[str, Any]) -> Dict[str, Any] | None:
-    """
-    Pick the next account in a process-local round-robin sequence.
+def _parse_iso8601(value: str) -> datetime.datetime | None:
+    try:
+        if value.endswith("Z"):
+            value = value[:-1] + "+00:00"
+        dt = datetime.datetime.fromisoformat(value)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        return dt.astimezone(datetime.timezone.utc)
+    except Exception:
+        return None
 
-    This does NOT modify the on-disk store or active account; it only selects
-    an account for the current request.
-    """
+
+def _cooldown_until(account: Dict[str, Any]) -> datetime.datetime | None:
+    raw = account.get("cooldown_until")
+    if isinstance(raw, str) and raw:
+        return _parse_iso8601(raw)
+    return None
+
+
+def _has_tokens(account: Dict[str, Any]) -> bool:
+    tokens = account.get("tokens") if isinstance(account.get("tokens"), dict) else {}
+    return bool(tokens.get("access_token") or tokens.get("refresh_token"))
+
+
+def is_account_available(account: Dict[str, Any], now: datetime.datetime | None = None) -> bool:
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    cooldown = _cooldown_until(account)
+    if cooldown and cooldown > now:
+        return False
+    return True
+
+
+def _collect_available_accounts(store: Dict[str, Any], now: datetime.datetime | None = None) -> List[Dict[str, Any]]:
     store = _normalize_store(store)
+    now = now or datetime.datetime.now(datetime.timezone.utc)
     accounts = store.get("accounts") or []
     usable: List[Dict[str, Any]] = []
     for account in accounts:
@@ -47,11 +74,39 @@ def pick_round_robin_account(store: Dict[str, Any]) -> Dict[str, Any] | None:
         account_id = account.get("account_id")
         if not isinstance(account_id, str) or not account_id:
             continue
-        tokens = account.get("tokens") if isinstance(account.get("tokens"), dict) else {}
-        if not (tokens.get("access_token") or tokens.get("refresh_token")):
+        if not _has_tokens(account):
+            continue
+        if not is_account_available(account, now):
             continue
         usable.append(account)
+    if len(usable) > 1:
+        usable.sort(key=lambda a: a.get("account_id") or "")
+    return usable
 
+
+def earliest_cooldown(store: Dict[str, Any], now: datetime.datetime | None = None) -> datetime.datetime | None:
+    store = _normalize_store(store)
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    earliest: datetime.datetime | None = None
+    for account in store.get("accounts") or []:
+        if not isinstance(account, dict):
+            continue
+        cooldown = _cooldown_until(account)
+        if not cooldown or cooldown <= now:
+            continue
+        if earliest is None or cooldown < earliest:
+            earliest = cooldown
+    return earliest
+
+
+def pick_round_robin_account(store: Dict[str, Any]) -> Dict[str, Any] | None:
+    """
+    Pick the next account in a process-local round-robin sequence.
+
+    This does NOT modify the on-disk store or active account; it only selects
+    an account for the current request.
+    """
+    usable = _collect_available_accounts(store)
     if not usable:
         return None
 
@@ -60,6 +115,112 @@ def pick_round_robin_account(store: Dict[str, Any]) -> Dict[str, Any] | None:
         idx = _RR_COUNTER % len(usable)
         _RR_COUNTER += 1
     return usable[idx]
+
+
+def pick_first_available_account(store: Dict[str, Any], preferred_id: str | None = None) -> Dict[str, Any] | None:
+    store = _normalize_store(store)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if preferred_id:
+        preferred = get_account(store, preferred_id)
+        if isinstance(preferred, dict) and _has_tokens(preferred) and is_account_available(preferred, now):
+            return preferred
+    available = _collect_available_accounts(store, now)
+    return available[0] if available else None
+
+
+def _next_quota_backoff(prev_level: int) -> tuple[int, int]:
+    base = 1
+    max_seconds = 30 * 60
+    cooldown = base * (2 ** max(0, prev_level))
+    if cooldown < base:
+        cooldown = base
+    if cooldown >= max_seconds:
+        return max_seconds, prev_level
+    return cooldown, prev_level + 1
+
+
+def mark_account_success(store: Dict[str, Any], account_id: str) -> Dict[str, Any]:
+    store = _normalize_store(store)
+    for account in store.get("accounts") or []:
+        if not isinstance(account, dict):
+            continue
+        if account.get("account_id") != account_id:
+            continue
+        account["cooldown_until"] = ""
+        account["backoff_level"] = 0
+        account["last_error_code"] = None
+        account["last_error_message"] = ""
+        account["last_error_at"] = ""
+        account["last_success_at"] = _now_iso()
+        break
+    return store
+
+
+def mark_account_failure(
+    store: Dict[str, Any],
+    account_id: str,
+    status_code: int | None,
+    *,
+    retry_after_seconds: int | None = None,
+    message: str | None = None,
+) -> Dict[str, Any]:
+    store = _normalize_store(store)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    for account in store.get("accounts") or []:
+        if not isinstance(account, dict):
+            continue
+        if account.get("account_id") != account_id:
+            continue
+        cooldown_seconds = 0
+        backoff_level = int(account.get("backoff_level") or 0)
+        if status_code == 429:
+            if isinstance(retry_after_seconds, int) and retry_after_seconds > 0:
+                cooldown_seconds = retry_after_seconds
+            else:
+                cooldown_seconds, backoff_level = _next_quota_backoff(backoff_level)
+        elif status_code in (401, 403):
+            cooldown_seconds = 30 * 60
+            backoff_level = 0
+        elif status_code == 404:
+            cooldown_seconds = 12 * 60 * 60
+            backoff_level = 0
+        elif status_code in (408, 500, 502, 503, 504):
+            cooldown_seconds = 60
+            backoff_level = 0
+
+        if cooldown_seconds > 0:
+            account["cooldown_until"] = (now + datetime.timedelta(seconds=cooldown_seconds)).isoformat().replace("+00:00", "Z")
+        account["backoff_level"] = backoff_level
+        account["last_error_code"] = status_code
+        account["last_error_message"] = message or ""
+        account["last_error_at"] = _now_iso()
+        break
+    return store
+
+
+def record_account_result(
+    account_id: str | None,
+    *,
+    success: bool,
+    status_code: int | None = None,
+    retry_after_seconds: int | None = None,
+    message: str | None = None,
+    home_dir: str | None = None,
+) -> bool:
+    if not account_id:
+        return False
+    store = load_store(home_dir) or {"accounts": []}
+    if success:
+        store = mark_account_success(store, account_id)
+    else:
+        store = mark_account_failure(
+            store,
+            account_id,
+            status_code,
+            retry_after_seconds=retry_after_seconds,
+            message=message,
+        )
+    return save_store(store, home_dir)
 
 
 def load_store(home_dir: str | None = None) -> Dict[str, Any] | None:
