@@ -62,13 +62,27 @@ def _wrap_stream_logging(label: str, iterator, enabled: bool):
 
     return _gen()
 
+def _normalize_instructions(value: Any, fallback: str, *, default: str = "You are a helpful assistant.") -> str:
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if cleaned:
+            return value
+    if isinstance(fallback, str):
+        cleaned = fallback.strip()
+        if cleaned:
+            return fallback
+    return default
+
 
 def _instructions_for_model(model: str) -> str:
-    base = current_app.config.get("BASE_INSTRUCTIONS", BASE_INSTRUCTIONS)
+    base = _normalize_instructions(current_app.config.get("BASE_INSTRUCTIONS"), BASE_INSTRUCTIONS)
     if model.startswith("gpt-5.2-codex") or model.startswith("gpt-5-codex") or model.startswith("gpt-5.1-codex"):
-        codex = current_app.config.get("GPT5_CODEX_INSTRUCTIONS") or GPT5_CODEX_INSTRUCTIONS
-        if isinstance(codex, str) and codex.strip():
-            return codex
+        codex = _normalize_instructions(
+            current_app.config.get("GPT5_CODEX_INSTRUCTIONS"),
+            GPT5_CODEX_INSTRUCTIONS,
+            default=base,
+        )
+        return codex
     return base
 
 

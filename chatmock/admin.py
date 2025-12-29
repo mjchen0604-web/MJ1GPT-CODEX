@@ -14,7 +14,6 @@ from flask import (
     abort,
     current_app,
     jsonify,
-    make_response,
     redirect,
     render_template,
     request,
@@ -218,7 +217,7 @@ def _no_store(resp: Response) -> Response:
 
 @admin_bp.get("/login")
 def login_page() -> Response:
-    return make_response(render_template("admin_login.html", error=None))
+    return render_template("admin_login.html", error=None)
 
 
 @admin_bp.post("/login")
@@ -228,7 +227,7 @@ def login_post() -> Response:
     if submitted and submitted == pw:
         session["chatmock_admin"] = True
         return redirect(url_for("admin.panel"))
-    return make_response(render_template("admin_login.html", error="密码不正确"))
+    return render_template("admin_login.html", error="密码不正确")
 
 
 @admin_bp.post("/logout")
@@ -254,27 +253,25 @@ def panel() -> Response:
     auth_error = session.pop("auth_error", None) or auth_ctx.get("error")
     key_error = session.pop("key_error", None)
 
-    return make_response(
-        render_template(
-            "admin_panel.html",
-            current=current,
-            saved={**DEFAULT_SETTINGS, **saved},
-            valid_efforts=sorted(VALID_REASONING_EFFORT),
-            valid_summaries=sorted(VALID_REASONING_SUMMARY),
-            valid_compats=sorted(VALID_REASONING_COMPAT),
-            home_dir=home_dir,
-            has_tokens=auth_ctx.get("has_tokens"),
-            flow=auth_ctx.get("flow"),
-            flow_expires_in=auth_ctx.get("flow_expires_in"),
-            accounts=auth_ctx.get("accounts"),
-            active_account_id=auth_ctx.get("active_account_id"),
-            account_strategy=auth_ctx.get("account_strategy"),
-            auth_error=auth_error,
-            api_keys_enabled=keys_enabled,
-            keys=keys,
-            generated_key=generated,
-            key_error=key_error,
-        )
+    return render_template(
+        "admin_panel.html",
+        current=current,
+        saved={**DEFAULT_SETTINGS, **saved},
+        valid_efforts=sorted(VALID_REASONING_EFFORT),
+        valid_summaries=sorted(VALID_REASONING_SUMMARY),
+        valid_compats=sorted(VALID_REASONING_COMPAT),
+        home_dir=home_dir,
+        has_tokens=auth_ctx.get("has_tokens"),
+        flow=auth_ctx.get("flow"),
+        flow_expires_in=auth_ctx.get("flow_expires_in"),
+        accounts=auth_ctx.get("accounts"),
+        active_account_id=auth_ctx.get("active_account_id"),
+        account_strategy=auth_ctx.get("account_strategy"),
+        auth_error=auth_error,
+        api_keys_enabled=keys_enabled,
+        keys=keys,
+        generated_key=generated,
+        key_error=key_error,
     )
 
 

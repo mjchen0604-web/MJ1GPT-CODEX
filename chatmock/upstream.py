@@ -95,6 +95,14 @@ def _parse_failover_attempts(raw: str | None) -> int | None:
     return parsed
 
 
+def _is_usage_limit_error(code: str | None, message: str | None) -> bool:
+    if isinstance(code, str) and code in ("usage_limit_reached", "billing_hard_limit_reached"):
+        return True
+    if isinstance(message, str) and "usage limit" in message.lower():
+        return True
+    return False
+
+
 def _extract_error_info(resp: requests.Response) -> tuple[str | None, str | None, int | None]:
     try:
         payload = resp.json()
@@ -112,6 +120,8 @@ def _extract_error_info(resp: requests.Response) -> tuple[str | None, str | None
                 etype = err.get("type")
                 if isinstance(etype, str) and etype:
                     code = etype
+            if _is_usage_limit_error(code, msg):
+                return msg, code, None
             for key in ("retry_after", "retry_after_seconds", "resets_in_seconds"):
                 value = err.get(key)
                 if isinstance(value, (int, float)) and value > 0:
