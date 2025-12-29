@@ -255,24 +255,26 @@ def panel() -> Response:
     key_error = session.pop("key_error", None)
 
     return make_response(
-        "admin_panel.html",
-        current=current,
-        saved={**DEFAULT_SETTINGS, **saved},
-        valid_efforts=sorted(VALID_REASONING_EFFORT),
-        valid_summaries=sorted(VALID_REASONING_SUMMARY),
-        valid_compats=sorted(VALID_REASONING_COMPAT),
-        home_dir=home_dir,
-        has_tokens=auth_ctx.get("has_tokens"),
-        flow=auth_ctx.get("flow"),
-        flow_expires_in=auth_ctx.get("flow_expires_in"),
-        accounts=auth_ctx.get("accounts"),
-        active_account_id=auth_ctx.get("active_account_id"),
-        account_strategy=auth_ctx.get("account_strategy"),
-        auth_error=auth_error,
-        api_keys_enabled=keys_enabled,
-        keys=keys,
-        generated_key=generated,
-        key_error=key_error,
+        render_template(
+            "admin_panel.html",
+            current=current,
+            saved={**DEFAULT_SETTINGS, **saved},
+            valid_efforts=sorted(VALID_REASONING_EFFORT),
+            valid_summaries=sorted(VALID_REASONING_SUMMARY),
+            valid_compats=sorted(VALID_REASONING_COMPAT),
+            home_dir=home_dir,
+            has_tokens=auth_ctx.get("has_tokens"),
+            flow=auth_ctx.get("flow"),
+            flow_expires_in=auth_ctx.get("flow_expires_in"),
+            accounts=auth_ctx.get("accounts"),
+            active_account_id=auth_ctx.get("active_account_id"),
+            account_strategy=auth_ctx.get("account_strategy"),
+            auth_error=auth_error,
+            api_keys_enabled=keys_enabled,
+            keys=keys,
+            generated_key=generated,
+            key_error=key_error,
+        )
     )
 
 
