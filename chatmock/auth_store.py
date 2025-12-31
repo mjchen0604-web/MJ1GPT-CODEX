@@ -6,7 +6,7 @@ import os
 import threading
 from typing import Any, Dict, List, Optional
 
-from .utils import get_home_dir, parse_jwt_claims, write_auth_file
+from .utils import get_home_dir, parse_jwt_claims
 
 
 STORE_FILENAME = "auth_store.json"
@@ -26,8 +26,6 @@ def store_path(home_dir: str | None = None) -> str:
 def _normalize_store(store: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(store.get("accounts"), list):
         store["accounts"] = []
-    if not isinstance(store.get("active_account_id"), str):
-        store["active_account_id"] = ""
     return store
 
 
@@ -50,8 +48,33 @@ def _cooldown_until(account: Dict[str, Any]) -> datetime.datetime | None:
     return None
 
 
+_TOKEN_KEY_MAP = {
+    "access_token": "access_token",
+    "accessToken": "access_token",
+    "refresh_token": "refresh_token",
+    "refreshToken": "refresh_token",
+    "id_token": "id_token",
+    "idToken": "id_token",
+    "account_id": "account_id",
+    "accountId": "account_id",
+}
+_TOKEN_ALIAS_KEYS = {key for key, value in _TOKEN_KEY_MAP.items() if key != value}
+
+
+def normalize_token_dict(tokens: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(tokens, dict):
+        return {}
+    normalized = {key: value for key, value in tokens.items() if key not in _TOKEN_ALIAS_KEYS}
+    for key, canonical in _TOKEN_KEY_MAP.items():
+        value = tokens.get(key)
+        if isinstance(value, str) and value:
+            normalized[canonical] = value
+    return normalized
+
+
 def _has_tokens(account: Dict[str, Any]) -> bool:
     tokens = account.get("tokens") if isinstance(account.get("tokens"), dict) else {}
+    tokens = normalize_token_dict(tokens)
     return bool(tokens.get("access_token") or tokens.get("refresh_token"))
 
 
@@ -137,10 +160,6 @@ def pick_round_robin_account(store: Dict[str, Any]) -> Dict[str, Any] | None:
 def pick_first_available_account(store: Dict[str, Any], preferred_id: str | None = None) -> Dict[str, Any] | None:
     store = _normalize_store(store)
     now = datetime.datetime.now(datetime.timezone.utc)
-    if preferred_id:
-        preferred = get_account(store, preferred_id)
-        if isinstance(preferred, dict) and _has_tokens(preferred) and is_account_available(preferred, now):
-            return preferred
     available = _collect_available_accounts(store, now)
     return available[0] if available else None
 
@@ -276,6 +295,7 @@ def save_store(store: Dict[str, Any], home_dir: str | None = None) -> bool:
 
 
 def _account_id_from_tokens(tokens: Dict[str, Any]) -> str | None:
+    tokens = normalize_token_dict(tokens)
     account_id = tokens.get("account_id")
     if isinstance(account_id, str) and account_id:
         return account_id
@@ -291,6 +311,7 @@ def _account_id_from_tokens(tokens: Dict[str, Any]) -> str | None:
 
 
 def _label_from_tokens(tokens: Dict[str, Any]) -> str:
+    tokens = normalize_token_dict(tokens)
     id_token = tokens.get("id_token")
     if isinstance(id_token, str) and id_token:
         claims = parse_jwt_claims(id_token) or {}
@@ -308,15 +329,20 @@ def normalize_auth_json(auth: Dict[str, Any]) -> Dict[str, Any]:
         return {}
     tokens = auth.get("tokens") if isinstance(auth.get("tokens"), dict) else None
     if isinstance(tokens, dict):
-        return auth
+        normalized_tokens = normalize_token_dict(tokens)
+        if normalized_tokens == tokens:
+            return auth
+        normalized = dict(auth)
+        normalized["tokens"] = normalized_tokens
+        return normalized
     flat_tokens: Dict[str, Any] = {}
-    for key in ("id_token", "access_token", "refresh_token", "account_id"):
+    for key in ("id_token", "access_token", "refresh_token", "account_id", "idToken", "accessToken", "refreshToken", "accountId"):
         value = auth.get(key)
         if isinstance(value, str) and value:
             flat_tokens[key] = value
     if flat_tokens:
         normalized = dict(auth)
-        normalized["tokens"] = flat_tokens
+        normalized["tokens"] = normalize_token_dict(flat_tokens)
         return normalized
     return auth
 
@@ -326,6 +352,7 @@ def account_from_auth_json(auth: Dict[str, Any]) -> Dict[str, Any] | None:
     tokens = auth.get("tokens") if isinstance(auth.get("tokens"), dict) else {}
     if not isinstance(tokens, dict):
         return None
+    tokens = normalize_token_dict(tokens)
     account_id = _account_id_from_tokens(tokens)
     if not account_id:
         return None
@@ -357,8 +384,6 @@ def upsert_account(store: Dict[str, Any], account: Dict[str, Any]) -> Dict[str, 
     if not updated:
         accounts.append(account)
     store["accounts"] = accounts
-    if not store.get("active_account_id"):
-        store["active_account_id"] = account_id
     return store
 
 
@@ -367,8 +392,6 @@ def delete_account(store: Dict[str, Any], account_id: str) -> Dict[str, Any]:
     accounts = store.get("accounts") or []
     accounts = [a for a in accounts if not (isinstance(a, dict) and a.get("account_id") == account_id)]
     store["accounts"] = accounts
-    if store.get("active_account_id") == account_id:
-        store["active_account_id"] = accounts[0].get("account_id") if accounts else ""
     return store
 
 
@@ -379,29 +402,4 @@ def get_account(store: Dict[str, Any], account_id: str | None = None) -> Dict[st
         for account in accounts:
             if isinstance(account, dict) and account.get("account_id") == account_id:
                 return account
-    active_id = store.get("active_account_id")
-    if isinstance(active_id, str) and active_id:
-        for account in accounts:
-            if isinstance(account, dict) and account.get("account_id") == active_id:
-                return account
     return accounts[0] if accounts else None
-
-
-def set_active(store: Dict[str, Any], account_id: str) -> Dict[str, Any]:
-    store = _normalize_store(store)
-    if any(isinstance(a, dict) and a.get("account_id") == account_id for a in store.get("accounts", [])):
-        store["active_account_id"] = account_id
-    return store
-
-
-def write_active_auth(store: Dict[str, Any], account_id: str | None = None) -> bool:
-    account = get_account(store, account_id)
-    if not account:
-        return False
-    tokens = account.get("tokens") if isinstance(account.get("tokens"), dict) else {}
-    auth_json = {
-        "OPENAI_API_KEY": account.get("api_key"),
-        "tokens": tokens,
-        "last_refresh": account.get("last_refresh") or _now_iso(),
-    }
-    return write_auth_file(auth_json)

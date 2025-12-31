@@ -291,21 +291,34 @@ def chat_completions() -> Response:
         except Exception:
             return {"raw": resp.text}
 
+    def _is_tools_rejected(payload: Dict[str, Any]) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        err = payload.get("error")
+        if not isinstance(err, dict):
+            return False
+        code = err.get("code")
+        if isinstance(code, str) and code == "RESPONSES_TOOLS_REJECTED":
+            return True
+        message = err.get("message")
+        if isinstance(message, str):
+            lowered = message.lower()
+            return "tools" in lowered and "reject" in lowered
+        return False
+
     if upstream.status_code >= 400:
         err_body = _read_err_body(upstream)
         tools_for_retry = tools_responses
-        if had_responses_tools:
+        if had_responses_tools and _is_tools_rejected(err_body):
             if verbose:
-                print("[Passthrough] Upstream error; retrying without extra tools (args redacted)")
-            base_tools_only = convert_tools_chat_to_responses(payload.get("tools"))
-            safe_choice = payload.get("tool_choice", "auto")
+                print("[Passthrough] Upstream rejected tools; retrying without tools (args redacted)")
             upstream2, err2 = start_upstream_request(
                 model,
                 input_items,
                 instructions=instructions,
-                tools=base_tools_only,
-                tool_choice=safe_choice,
-                parallel_tool_calls=parallel_tool_calls,
+                tools=None,
+                tool_choice="none",
+                parallel_tool_calls=False,
                 reasoning_param=reasoning_param,
             )
             record_rate_limits_from_response(upstream2)
@@ -313,7 +326,7 @@ def chat_completions() -> Response:
                 upstream = upstream2
             else:
                 err_body = _read_err_body(upstream2) if upstream2 is not None else err_body
-                tools_for_retry = base_tools_only
+            tools_for_retry = None
 
         if upstream.status_code == 400 and reasoning_param is not None:
             upstream3, err3 = start_upstream_request(

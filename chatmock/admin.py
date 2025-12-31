@@ -32,12 +32,9 @@ from .settings import (
 from .auth_store import (
     account_from_auth_json,
     delete_account,
-    get_account,
     load_store,
     save_store,
-    set_active,
     upsert_account,
-    write_active_auth,
 )
 from .api_keys import (
     add_key,
@@ -89,21 +86,6 @@ def _require_api_auth() -> None:
         abort(401)
 
 
-def _current_settings() -> Dict[str, Any]:
-    cfg = current_app.config
-    return {
-        "verbose": bool(cfg.get("VERBOSE")),
-        "verbose_obfuscation": bool(cfg.get("VERBOSE_OBFUSCATION")),
-        "reasoning_effort": (cfg.get("REASONING_EFFORT") or "medium"),
-        "reasoning_summary": (cfg.get("REASONING_SUMMARY") or "auto"),
-        "reasoning_compat": (cfg.get("REASONING_COMPAT") or "think-tags"),
-        "debug_model": cfg.get("DEBUG_MODEL") or None,
-        "expose_reasoning_models": bool(cfg.get("EXPOSE_REASONING_MODELS")),
-        "enable_web_search": bool(cfg.get("DEFAULT_WEB_SEARCH")),
-        "compatibility_mode": bool(cfg.get("COMPATIBILITY_MODE")),
-    }
-
-
 def _apply_settings(settings: Dict[str, Any]) -> None:
     current_app.config.update(
         VERBOSE=bool(settings.get("verbose")),
@@ -151,11 +133,13 @@ def _auth_context(error: str | None = None) -> Dict[str, Any]:
     home_dir = get_home_dir()
     store = load_store(home_dir)
     accounts = store.get("accounts") if isinstance(store, dict) else []
-    active_account_id = store.get("active_account_id") if isinstance(store, dict) else ""
-    strategy = "round_robin"
-    is_round_robin = True
-    active_account = get_account(store, active_account_id) if isinstance(store, dict) else None
-    has_tokens = bool((active_account or {}).get("tokens", {}).get("access_token"))
+    has_tokens = False
+    for acc in accounts if isinstance(accounts, list) else []:
+        if not isinstance(acc, dict):
+            continue
+        if (acc.get("tokens") or {}).get("access_token"):
+            has_tokens = True
+            break
     if not has_tokens:
         auth = read_auth_file() or {}
         has_tokens = bool((auth.get("tokens") or {}).get("access_token"))
@@ -196,9 +180,6 @@ def _auth_context(error: str | None = None) -> Dict[str, Any]:
         "flow_expires_in": flow_expires_in,
         "error": error,
         "accounts": decorated_accounts,
-        "active_account_id": active_account_id or "",
-        "account_strategy": strategy or "default",
-        "is_round_robin": is_round_robin,
     }
 
 
@@ -242,7 +223,6 @@ def panel() -> Response:
         return redirect(url_for("admin.login_page"))
 
     saved = load_settings()
-    current = _current_settings()
     home_dir = get_home_dir()
     auth_ctx = _auth_context()
     keys_store = load_api_keys()
@@ -255,7 +235,6 @@ def panel() -> Response:
 
     return render_template(
         "admin_panel.html",
-        current=current,
         saved={**DEFAULT_SETTINGS, **saved},
         valid_efforts=sorted(VALID_REASONING_EFFORT),
         valid_summaries=sorted(VALID_REASONING_SUMMARY),
@@ -265,8 +244,6 @@ def panel() -> Response:
         flow=auth_ctx.get("flow"),
         flow_expires_in=auth_ctx.get("flow_expires_in"),
         accounts=auth_ctx.get("accounts"),
-        active_account_id=auth_ctx.get("active_account_id"),
-        account_strategy=auth_ctx.get("account_strategy"),
         auth_error=auth_error,
         api_keys_enabled=keys_enabled,
         keys=keys,
@@ -406,11 +383,9 @@ def auth_complete() -> Response:
     if account:
         store = load_store(home_dir) or {"accounts": []}
         store = upsert_account(store, account)
-        store = set_active(store, account.get("account_id"))
         if not save_store(store, home_dir):
             session["auth_error"] = "写入 auth_store 失败"
             return redirect(url_for("admin.panel"))
-        write_active_auth(store, account.get("account_id"))
     else:
         if not write_auth_file(auth_json_contents):
             session["auth_error"] = "写入 auth.json 失败"
@@ -468,7 +443,6 @@ def auth_upload() -> Response:
         if not account:
             continue
         store = upsert_account(store, account)
-        store = set_active(store, account.get("account_id"))
         imported += 1
 
     if not imported:
@@ -478,7 +452,6 @@ def auth_upload() -> Response:
     if not save_store(store, home_dir):
         session["auth_error"] = "写入 auth_store 失败"
         return redirect(url_for("admin.panel"))
-    write_active_auth(store, store.get("active_account_id"))
 
     return redirect(url_for("admin.panel"))
 
@@ -498,19 +471,6 @@ def auth_clear() -> Response:
     return redirect(url_for("admin.panel"))
 
 
-@admin_bp.post("/auth/activate")
-def auth_activate() -> Response:
-    if not session.get("chatmock_admin"):
-        return redirect(url_for("admin.login_page"))
-    account_id = (request.form.get("account_id") or "").strip()
-    home_dir = get_home_dir()
-    store = load_store(home_dir) or {"accounts": []}
-    store = set_active(store, account_id)
-    save_store(store, home_dir)
-    write_active_auth(store, account_id)
-    return redirect(url_for("admin.panel"))
-
-
 @admin_bp.post("/auth/delete")
 def auth_delete() -> Response:
     if not session.get("chatmock_admin"):
@@ -520,7 +480,6 @@ def auth_delete() -> Response:
     store = load_store(home_dir) or {"accounts": []}
     store = delete_account(store, account_id)
     save_store(store, home_dir)
-    write_active_auth(store)
     return redirect(url_for("admin.panel"))
 
 
@@ -636,7 +595,7 @@ def keys_reset_usage() -> Response:
 @admin_bp.get("/api/settings")
 def api_get_settings() -> Response:
     _require_api_auth()
-    return jsonify({"saved": {**DEFAULT_SETTINGS, **load_settings()}, "current": _current_settings()})
+    return jsonify({"saved": {**DEFAULT_SETTINGS, **load_settings()}})
 
 
 @admin_bp.post("/api/settings")

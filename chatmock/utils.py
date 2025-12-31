@@ -234,29 +234,20 @@ def load_chatgpt_tokens(
             if account_id_override:
                 account = _auth_store.get_account(store, account_id_override)
             else:
-                strategy = (
-                    os.getenv("CHATMOCK_ACCOUNT_STRATEGY")
-                    or os.getenv("CHATGPT_LOCAL_ACCOUNT_STRATEGY")
-                    or ""
-                ).strip().lower()
-                if not strategy:
-                    strategy = "round_robin"
-                if strategy in ("round_robin", "round-robin", "rr", "auto", "default"):
-                    account = _auth_store.pick_round_robin_account(store)
-                elif strategy in ("first", "primary", "active"):
-                    account = _auth_store.pick_first_available_account(store, store.get("active_account_id"))
-                else:
-                    account = _auth_store.pick_round_robin_account(store)
-                if account is None:
-                    account = _auth_store.pick_first_available_account(store, store.get("active_account_id"))
-                if account is None:
-                    cooldown_until = _auth_store.earliest_cooldown(store)
+                account = _auth_store.pick_round_robin_account(store)
+            if account is None:
+                cooldown_until = _auth_store.earliest_cooldown(store)
     except Exception:
         store = None
         account = None
 
     if isinstance(account, dict):
         tokens = account.get("tokens") if isinstance(account.get("tokens"), dict) else {}
+        try:
+            from . import auth_store as _auth_store
+            tokens = _auth_store.normalize_token_dict(tokens)
+        except Exception:
+            pass
         access_token: Optional[str] = tokens.get("access_token")
         account_id: Optional[str] = tokens.get("account_id") or account.get("account_id")
         id_token: Optional[str] = tokens.get("id_token")
@@ -290,10 +281,7 @@ def load_chatgpt_tokens(
                         updated_account["tokens"] = updated_tokens
                         updated_account["last_refresh"] = _now_iso8601()
                         store = _auth_store.upsert_account(store or {"accounts": []}, updated_account)
-                        if account_id_override:
-                            store = _auth_store.set_active(store, account_id_override)
                         _auth_store.save_store(store)
-                        _auth_store.write_active_auth(store, account_id_override)
                     except Exception:
                         pass
 
@@ -320,6 +308,11 @@ def load_chatgpt_tokens(
         pass
 
     tokens = auth.get("tokens") if isinstance(auth.get("tokens"), dict) else {}
+    try:
+        from . import auth_store as _auth_store
+        tokens = _auth_store.normalize_token_dict(tokens)
+    except Exception:
+        pass
     access_token: Optional[str] = tokens.get("access_token")
     account_id: Optional[str] = tokens.get("account_id")
     id_token: Optional[str] = tokens.get("id_token")

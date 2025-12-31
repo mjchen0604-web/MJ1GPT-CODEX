@@ -135,7 +135,6 @@ def _extract_error_info(resp: requests.Response) -> tuple[str | None, str | None
 
 
 _REQUEST_ERROR_CODES = {
-    "RESPONSES_TOOLS_REJECTED",
     "invalid_request_error",
     "invalid_request",
     "missing_required_parameter",
@@ -151,8 +150,6 @@ def _is_request_error(status_code: int, err_code: str | None, err_message: str |
         return True
     if err_message:
         lowered = err_message.lower()
-        if "instructions are required" in lowered:
-            return True
         if "invalid" in lowered and status_code in (400, 422):
             return True
     return status_code in (400, 422)
@@ -286,12 +283,18 @@ def start_upstream_request(
         attempt_ids = [None]
 
     last_upstream = None
+    cooldown_earliest = None
     for attempt, override_id in enumerate(attempt_ids):
         access_token, account_id, cooldown_until = get_effective_chatgpt_auth(override_id)
+        if cooldown_until:
+            if cooldown_earliest is None or cooldown_until < cooldown_earliest:
+                cooldown_earliest = cooldown_until
         if not access_token or not account_id:
-            if cooldown_until:
+            if attempt < len(attempt_ids) - 1:
+                continue
+            if cooldown_earliest:
                 now = datetime.datetime.now(datetime.timezone.utc)
-                retry_after = int(max(0, (cooldown_until - now).total_seconds()))
+                retry_after = int(max(0, (cooldown_earliest - now).total_seconds()))
                 err = {
                     "error": {
                         "message": "All accounts are cooling down. Retry later.",
@@ -305,8 +308,6 @@ def start_upstream_request(
                 for k, v in build_cors_headers().items():
                     resp.headers.setdefault(k, v)
                 return None, resp
-            if attempt < len(attempt_ids) - 1:
-                continue
             resp = make_response(
                 jsonify(
                     {
@@ -362,8 +363,6 @@ def start_upstream_request(
         err_message, err_code, err_retry_after = _extract_error_info(upstream)
         if isinstance(err_retry_after, int) and err_retry_after > 0:
             retry_after = err_retry_after
-        if _is_request_error(upstream.status_code, err_code, err_message):
-            return upstream, None
         record_status = upstream.status_code
         record_account_result(
             account_id,

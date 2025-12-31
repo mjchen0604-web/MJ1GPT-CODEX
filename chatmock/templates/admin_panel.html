@@ -273,7 +273,7 @@
             {% if api_keys_enabled %}
               <span class="badge ok">已启用</span>
             {% else %}
-              <span class="badge off">未启用</span>
+              <span class="badge off">否</span>
             {% endif %}
           </div>
         </div>
@@ -331,7 +331,6 @@
 
         <div class="section">
           <h4>账号列表</h4>
-          <div class="muted" style="margin-top: 6px;">账号策略：轮询</div>
           {% if accounts %}
             {% for acc in accounts %}
               <div class="cred-card">
@@ -340,8 +339,6 @@
                   <div>
                     {% if acc.cooldown_active %}
                       <span class="badge warn">冷却中</span>
-                    {% elif is_round_robin %}
-                      <span class="badge ok">轮询</span>
                     {% endif %}
                   </div>
                 </div>
@@ -464,7 +461,7 @@
               <label>推理强度（reasoning_effort）</label>
               <select name="reasoning_effort">
                 {% for v in valid_efforts %}
-                  <option value="{{ v }}" {% if current.reasoning_effort == v %}selected{% endif %}>{{ v }}</option>
+                  <option value="{{ v }}" {% if saved.reasoning_effort == v %}selected{% endif %}>{{ v }}</option>
                 {% endfor %}
               </select>
             </div>
@@ -472,7 +469,7 @@
               <label>推理摘要（reasoning_summary）</label>
               <select name="reasoning_summary">
                 {% for v in valid_summaries %}
-                  <option value="{{ v }}" {% if current.reasoning_summary == v %}selected{% endif %}>{{ v }}</option>
+                  <option value="{{ v }}" {% if saved.reasoning_summary == v %}selected{% endif %}>{{ v }}</option>
                 {% endfor %}
               </select>
             </div>
@@ -480,19 +477,19 @@
               <label>推理兼容模式（reasoning_compat）</label>
               <select name="reasoning_compat">
                 {% for v in valid_compats %}
-                  <option value="{{ v }}" {% if current.reasoning_compat == v %}selected{% endif %}>{{ v }}</option>
+                  <option value="{{ v }}" {% if saved.reasoning_compat == v %}selected{% endif %}>{{ v }}</option>
                 {% endfor %}
               </select>
             </div>
             <div class="form-group">
               <label>调试模型（debug_model，可选）</label>
-              <input type="text" name="debug_model" value="{{ current.debug_model or '' }}" placeholder="留空=不覆盖" />
+              <input type="text" name="debug_model" value="{{ saved.debug_model or '' }}" placeholder="留空=不覆盖" />
             </div>
           </div>
 
           <div class="form-group">
             <label>
-              <input type="checkbox" name="compatibility_mode" value="1" {% if current.compatibility_mode %}checked{% endif %} />
+              <input type="checkbox" name="compatibility_mode" value="1" {% if saved.compatibility_mode %}checked{% endif %} />
               启用兼容模式（把 system 全部转成 user，并停用系统指令）
             </label>
             <div class="muted">启用后更像 2API 的“兼容模式”，适合处理流式空回等异常。</div>
@@ -500,25 +497,25 @@
 
           <div class="form-group">
             <label>
-              <input type="checkbox" name="expose_reasoning_models" value="1" {% if current.expose_reasoning_models %}checked{% endif %} />
+              <input type="checkbox" name="expose_reasoning_models" value="1" {% if saved.expose_reasoning_models %}checked{% endif %} />
               暴露推理变体（expose_reasoning_models）
             </label>
           </div>
           <div class="form-group">
             <label>
-              <input type="checkbox" name="enable_web_search" value="1" {% if current.enable_web_search %}checked{% endif %} />
-              默认启用 web_search（enable_web_search）
+              <input type="checkbox" name="enable_web_search" value="1" {% if saved.enable_web_search %}checked{% endif %} />
+              启用 web_search（enable_web_search）
             </label>
           </div>
           <div class="form-group">
             <label>
-              <input type="checkbox" name="verbose" value="1" {% if current.verbose %}checked{% endif %} />
+              <input type="checkbox" name="verbose" value="1" {% if saved.verbose %}checked{% endif %} />
               详细日志（verbose）
             </label>
           </div>
           <div class="form-group">
             <label>
-              <input type="checkbox" name="verbose_obfuscation" value="1" {% if current.verbose_obfuscation %}checked{% endif %} />
+              <input type="checkbox" name="verbose_obfuscation" value="1" {% if saved.verbose_obfuscation %}checked{% endif %} />
               底层 SSE 日志（verbose_obfuscation）
             </label>
           </div>
@@ -527,7 +524,7 @@
 
         <div class="section">
           <form method="post" action="{{ url_for('admin.reset_settings_form') }}">
-            <button class="btn btn-danger" type="submit">重置为默认（删除 server_settings.json）</button>
+            <button class="btn btn-danger" type="submit">重置配置（删除 server_settings.json）</button>
           </form>
           <div class="muted" style="margin-top: 8px;">保存位置：<code>{{ home_dir }}/server_settings.json</code></div>
         </div>
