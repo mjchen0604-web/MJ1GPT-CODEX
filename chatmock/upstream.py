@@ -142,14 +142,30 @@ _REQUEST_ERROR_CODES = {
     "unsupported_format",
     "context_length_exceeded",
     "bad_request",
+    "responses_tools_rejected",
+    "invalid_tool",
+    "tool_validation_error",
+    "tools_not_supported",
+    "unsupported_tool",
+    "invalid_response_format",
+    "invalid_message",
+    "invalid_messages",
+    "invalid_input",
+    "invalid_prompt",
+    "invalid_arguments",
 }
 
 
 def _is_request_error(status_code: int, err_code: str | None, err_message: str | None) -> bool:
-    if err_code in _REQUEST_ERROR_CODES:
+    normalized_code = err_code.lower() if isinstance(err_code, str) else None
+    if normalized_code in _REQUEST_ERROR_CODES:
         return True
     if err_message:
         lowered = err_message.lower()
+        if "instructions are required" in lowered:
+            return True
+        if "tool" in lowered and "reject" in lowered:
+            return True
         if "invalid" in lowered and status_code in (400, 422):
             return True
     return status_code in (400, 422)
@@ -363,6 +379,8 @@ def start_upstream_request(
         err_message, err_code, err_retry_after = _extract_error_info(upstream)
         if isinstance(err_retry_after, int) and err_retry_after > 0:
             retry_after = err_retry_after
+        if _is_request_error(upstream.status_code, err_code, err_message):
+            return upstream, None
         record_status = upstream.status_code
         record_account_result(
             account_id,
